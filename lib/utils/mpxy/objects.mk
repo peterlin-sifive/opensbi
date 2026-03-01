@@ -30,8 +30,8 @@ libsbiutils-objs-$(CONFIG_FDT_MPXY_RPMI_DEVICE_POWER) += mpxy/fdt_mpxy_rpmi_devi
 carray-fdt_mpxy_drivers-$(CONFIG_FDT_MPXY_RPMI_MM) += fdt_mpxy_rpmi_mm
 libsbiutils-objs-$(CONFIG_FDT_MPXY_RPMI_MM) += mpxy/fdt_mpxy_rpmi_mm.o
 
-carray-fdt_mpxy_drivers-$(CONFIG_FDT_MPXY_RPMI_OPTEE) += fdt_mpxy_rpmi_optee
-libsbiutils-objs-$(CONFIG_FDT_MPXY_RPMI_OPTEE) += mpxy/fdt_mpxy_rpmi_optee.o
+carray-fdt_mpxy_drivers-$(CONFIG_FDT_MPXY_RPMI_TEE) += fdt_mpxy_rpmi_tee
+libsbiutils-objs-$(CONFIG_FDT_MPXY_RPMI_TEE) += mpxy/fdt_mpxy_rpmi_tee.o
 
 carray-fdt_mpxy_drivers-$(CONFIG_FDT_MPXY_REQFWD) += fdt_mpxy_reqfwd
 libsbiutils-objs-$(CONFIG_FDT_MPXY_REQFWD) += mpxy/fdt_mpxy_reqfwd.o

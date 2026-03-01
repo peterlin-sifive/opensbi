@@ -42,10 +42,26 @@ config FDT_MPXY_RPMI_MM
 	bool "MPXY driver for RPMI MM service group"
 	default n
 
-config FDT_MPXY_RPMI_OPTEE
-	bool "MPXY driver for RPMI OP-TEE service group"
+config FDT_MPXY_RPMI_TEE
+	bool "MPXY driver for RPMI TEE service group"
+	select FDT_TEE
 	default n
 
 endif
+
+menu "TEE Dispatcher Support"
+
+config FDT_TEE
+	bool "FDT based TEE dispatcher support"
+	depends on FDT
+	default n
+
+config FDT_TEE_OPTEE
+	bool "OP-TEE dispatcher support"
+	depends on FDT_MPXY_RPMI_TEE
+	depends on FDT_MPXY_REQFWD
+	default n
+
+endmenu
 
 endmenu
