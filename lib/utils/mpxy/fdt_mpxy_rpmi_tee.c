@@ -13,88 +13,72 @@
 #include <libfdt.h>
 #include <sbi/sbi_error.h>
 #include <sbi/sbi_heap.h>
+#include <sbi/sbi_mpxy.h>
+#include <sbi/sbi_string.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/mpxy/fdt_mpxy_rpmi_mbox.h>
 #include <sbi_utils/mailbox/rpmi_mailbox.h>
 #include <sbi_utils/tee/tee_dispatcher.h>
 
-/** TEE group context */
-struct tee_group_context {
+/** TEE MPXY channel context */
+struct mpxy_tee {
+	/** TEE dispatcher */
 	struct tee_dispatcher *dispatcher;
+	/** Cached TEE attributes */
 	struct tee_attributes cached_attrs;
-};
-
-/** Cached response for TEE_GET_ATTRIBUTES */
-static struct tee_group_context tee_ctx;
-
-/** TEE service data for validation */
-static struct mpxy_rpmi_service_data tee_srvcdata[] = {
-	[0] = {
-		.id = RPMI_TEE_SRV_GET_ATTRIBUTES,
-		.min_tx_len = 0,
-		.max_tx_len = 0,
-		.min_rx_len = sizeof(s32) + sizeof(u32), /* status + impl_id */
-		.max_rx_len = sizeof(s32) + sizeof(u32),
-	},
-	[1] = {
-		.id = RPMI_TEE_SRV_COMMUNICATE,
-		/*
-		 * TEE_COMMUNICATE data format is implementation-specific.
-		 * The min/max lengths here are just basic sanity checks.
-		 * Actual validation is done by the dispatcher.
-		 */
-		.min_tx_len = sizeof(u32),
-		.max_tx_len = 256,  /* Max MPXY message size */
-		.min_rx_len = sizeof(s32),
-		.max_rx_len = 256,
-	},
+	/** RPMI channel attributes */
+	struct mpxy_rpmi_channel_attrs msgprot_attrs;
+	/** MPXY channel */
+	struct sbi_mpxy_channel channel;
+	/** Owner hart ID */
+	u32 hartid;
 };
 
 /**
- * Setup TEE service group
+ * Read RPMI message protocol attributes
  */
-static int mpxy_rpmi_tee_setup(void **context, struct mbox_chan *chan,
-			       const struct mpxy_rpmi_mbox_data *data)
+static int mpxy_tee_read_attributes(struct sbi_mpxy_channel *channel,
+				    u32 *outmem, u32 base_attr_id,
+				    u32 attr_count)
 {
-	int rc;
+	struct mpxy_tee *tee =
+		container_of(channel, struct mpxy_tee, channel);
+	u32 end_id = base_attr_id + attr_count - 1;
 
-	if (!tee_ctx.dispatcher)
-		return SBI_ENODEV;
+	if (end_id >= MPXY_MSGPROT_RPMI_ATTR_MAX_ID ||
+	    base_attr_id < MPXY_MSGPROT_RPMI_ATTR_SERVICEGROUP_ID)
+		return SBI_EBAD_RANGE;
 
-	/* Get and cache TEE attributes */
-	if (tee_ctx.dispatcher->ops->get_attributes) {
-		rc = tee_ctx.dispatcher->ops->get_attributes(
-			tee_ctx.dispatcher, &tee_ctx.cached_attrs);
-		if (rc)
-			return rc;
-	}
-
-	*context = &tee_ctx;
+	sbi_memcpy(outmem,
+		   (void *)&tee->msgprot_attrs + attr_id2index(base_attr_id) *
+		   sizeof(u32), attr_count * sizeof(u32));
 	return SBI_OK;
 }
 
 /**
- * Handle TEE service group message transfer
+ * Send TEE message with response
  */
-static int mpxy_rpmi_tee_xfer(void *context, struct mbox_chan *chan,
-			      struct mbox_xfer *xfer)
+static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
+					       u32 msg_id, void *msgbuf,
+					       u32 msg_len, void *respbuf,
+					       u32 resp_max_len,
+					       unsigned long *resp_len)
 {
-	struct tee_group_context *ctx = context;
-	struct rpmi_message_args *args = xfer->args;
+	struct mpxy_tee *tee =
+		container_of(channel, struct mpxy_tee, channel);
 	int rc = SBI_OK;
 
-	if (!ctx || !ctx->dispatcher)
+	if (!tee->dispatcher)
 		return SBI_ENODEV;
 
-	if (!xfer->rx || (args->type != RPMI_MSG_NORMAL_REQUEST))
-		return SBI_OK;
-
-	switch (args->service_id) {
+	switch (msg_id) {
 	case RPMI_TEE_SRV_GET_ATTRIBUTES:
 		/* Return cached attributes */
-		((u32 *)xfer->rx)[0] = cpu_to_le32(RPMI_SUCCESS);
-		((u32 *)xfer->rx)[1] = cpu_to_le32(ctx->cached_attrs.tee_impl_id);
-		args->rx_data_len = 2 * sizeof(u32);
+		if (resp_max_len < 2 * sizeof(u32))
+			return SBI_ENOMEM;
+		((u32 *)respbuf)[0] = cpu_to_le32(RPMI_SUCCESS);
+		((u32 *)respbuf)[1] = cpu_to_le32(tee->cached_attrs.tee_impl_id);
+		*resp_len = 2 * sizeof(u32);
 		break;
 
 	case RPMI_TEE_SRV_COMMUNICATE:
@@ -102,45 +86,32 @@ static int mpxy_rpmi_tee_xfer(void *context, struct mbox_chan *chan,
 		 * TEE_COMMUNICATE uses implementation-specific data format.
 		 * Forward the entire request to the dispatcher.
 		 */
-		if (ctx->dispatcher->ops->communicate) {
-			unsigned long rx_len = 0;
-
-			rc = ctx->dispatcher->ops->communicate(
-				ctx->dispatcher,
-				xfer->tx, xfer->tx_len,
-				xfer->rx, xfer->rx_len,
-				&rx_len);
-
-			args->rx_data_len = rx_len;
+		if (tee->dispatcher->ops->communicate) {
+			rc = tee->dispatcher->ops->communicate(
+				tee->dispatcher,
+				msgbuf, msg_len,
+				respbuf, resp_max_len,
+				resp_len);
 
 			/* Enter TEE domain if supported */
-			if (!rc && ctx->dispatcher->ops->domain_enter) {
-				rc = ctx->dispatcher->ops->domain_enter(
-					ctx->dispatcher);
+			if (!rc && tee->dispatcher->ops->domain_enter) {
+				rc = tee->dispatcher->ops->domain_enter(
+					tee->dispatcher);
 			}
 		} else {
-			((u32 *)xfer->rx)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
-			args->rx_data_len = sizeof(u32);
+			((u32 *)respbuf)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
+			*resp_len = sizeof(u32);
 		}
 		break;
 
 	default:
-		((u32 *)xfer->rx)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
-		args->rx_data_len = sizeof(u32);
+		((u32 *)respbuf)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
+		*resp_len = sizeof(u32);
 		break;
 	}
 
 	return rc;
 }
-
-/** TEE service group mbox data */
-static const struct mpxy_rpmi_mbox_data tee_data = {
-	.servicegrp_id = RPMI_SRVGRP_TEE,
-	.num_services = RPMI_TEE_SRV_MAX_COUNT,
-	.service_data = tee_srvcdata,
-	.setup_group = mpxy_rpmi_tee_setup,
-	.xfer_group = mpxy_rpmi_tee_xfer,
-};
 
 /**
  * Initialize TEE MPXY channel
@@ -148,22 +119,83 @@ static const struct mpxy_rpmi_mbox_data tee_data = {
 static int mpxy_tee_init(const void *fdt, int nodeoff,
 			 const struct fdt_match *match)
 {
-	int rc;
+	struct mpxy_tee *tee;
+	const fdt32_t *val;
+	u32 channel_id, hartid;
+	int rc, len, cpu_offset;
+
+	/* Allocate context for TEE MPXY */
+	tee = sbi_zalloc(sizeof(*tee));
+	if (!tee)
+		return SBI_ENOMEM;
+
+	/* Get channel ID from DT */
+	val = fdt_getprop(fdt, nodeoff, "riscv,sbi-mpxy-channel-id", &len);
+	if (len > 0 && val)
+		channel_id = fdt32_to_cpu(*val);
+	else {
+		rc = SBI_EINVAL;
+		goto fail_free;
+	}
+
+	/* Get parent CPU node to extract hartid */
+	cpu_offset = fdt_parent_offset(fdt, nodeoff);
+	if (cpu_offset < 0) {
+		rc = SBI_EINVAL;
+		goto fail_free;
+	}
+
+	rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
+	if (rc)
+		goto fail_free;
+
+	tee->hartid = hartid;
 
 	/* Setup TEE dispatcher from device tree */
-	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee_ctx.dispatcher);
+	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee->dispatcher);
 	if (rc)
-		return rc;
+		goto fail_free;
 
-	/* Continue with standard RPMI mbox init */
-	return mpxy_rpmi_mbox_init(fdt, nodeoff, match);
+	/* Get and cache TEE attributes */
+	if (tee->dispatcher->ops->get_attributes) {
+		rc = tee->dispatcher->ops->get_attributes(
+			tee->dispatcher, &tee->cached_attrs);
+		if (rc)
+			goto fail_free;
+	}
+
+	/* Setup MPXY channel */
+	tee->channel.channel_id = channel_id;
+	tee->channel.attrs.msg_proto_id = SBI_MPXY_MSGPROTO_RPMI_ID;
+	tee->channel.attrs.msg_proto_version = 1;
+	tee->channel.attrs.msg_data_maxlen = PAGE_SIZE;
+	tee->channel.attrs.msg_send_timeout = 0;
+	tee->channel.attrs.msg_completion_timeout = 0;
+	tee->channel.read_attributes = mpxy_tee_read_attributes;
+	tee->channel.send_message_with_response =
+		mpxy_tee_send_message_with_response;
+
+	/* Setup RPMI service group attributes */
+	tee->msgprot_attrs.servicegrp_id = RPMI_SRVGRP_TEE;
+	tee->msgprot_attrs.servicegrp_ver = 1;
+
+	/* Register MPXY channel */
+	rc = sbi_mpxy_register_channel(&tee->channel);
+	if (rc)
+		goto fail_free;
+
+	return SBI_OK;
+
+fail_free:
+	sbi_free(tee);
+	return rc;
 }
 
 /** Device tree match table */
 static const struct fdt_match tee_match[] = {
 	{
 		.compatible = "riscv,rpmi-mpxy-tee",
-		.data = &tee_data,
+		.data = NULL,
 	},
 	{},
 };
@@ -174,4 +206,3 @@ const struct fdt_driver fdt_mpxy_rpmi_tee = {
 	.match_table = tee_match,
 	.init = mpxy_tee_init,
 };
-
