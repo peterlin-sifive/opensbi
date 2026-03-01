@@ -222,7 +222,7 @@ enum rpmi_servicegroup_id {
 	RPMI_SRVGRP_PERFORMANCE = 0x0000A,
 	RPMI_SRVGRP_MANAGEMENT_MODE = 0x000B,
 	RPMI_SRVGRP_REQFWD = 0x000D,
-	RPMI_SRVGRP_OPTEE = 0x000E,
+	RPMI_SRVGRP_TEE = 0x000E,
 	RPMI_SRVGRP_ID_MAX_COUNT,
 
 	/* Reserved range for service groups */
@@ -986,43 +986,34 @@ struct rpmi_mm_communicate_rsp {
 	u32 mm_comm_retdata_size;
 };
 
-/** RPMI OP-TEE ServiceGroup Service IDs */
-enum rpmi_optee_service_id {
-	RPMI_OPTEE_SRV_ENABLE_NOTIFICATION = 0x01,
-	RPMI_OPTEE_SRV_GET_ATTRIBUTES = 0x02,
-	RPMI_OPTEE_SRV_COMMUNICATE = 0x03,
-	RPMI_OPTEE_SRV_MAX_COUNT,
+/** RPMI TEE ServiceGroup Service IDs */
+enum rpmi_tee_service_id {
+	RPMI_TEE_SRV_ENABLE_NOTIFICATION = 0x01,
+	RPMI_TEE_SRV_GET_ATTRIBUTES = 0x02,
+	RPMI_TEE_SRV_COMMUNICATE = 0x03,
+	RPMI_TEE_SRV_MAX_COUNT,
 };
 
-struct rpmi_optee_enable_notification_req {
+struct rpmi_tee_enable_notification_req {
 	u32 event_id;
 	u32 req_state;
 };
 
-struct rpmi_optee_enable_notification_resp {
+struct rpmi_tee_enable_notification_resp {
 	s32 status;
 	u32 current_state;
 };
 
-struct rpmi_optee_get_attributes_resp {
+struct rpmi_tee_get_attributes_resp {
 	s32 status;
-	u32 optee_version;
-	u32 optee_shmem_addr_low;
-	u32 optee_shmem_addr_high;
-	u32 optee_shmem_size;
+	u32 tee_impl_id;
 };
 
-struct rpmi_optee_communicate_req {
-	u32 optee_comm_input_data_offset;
-	u32 optee_comm_input_data_size;
-	u32 optee_comm_output_data_offset;
-	u32 optee_comm_output_data_size;
-};
-
-struct rpmi_optee_communicate_resp {
-	s32 status;
-	u32 optee_comm_return_data_size;
-};
+/*
+ * TEE_COMMUNICATE request/response structures are
+ * implementation-specific. Each TEE dispatcher
+ * defines its own format.
+ */
 
 /** RPMI Request Forward ServiceGroup Service IDs */
 enum rpmi_reqfwd_service_id {
