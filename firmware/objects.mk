@@ -16,7 +16,7 @@ firmware-ldflags-y +=
 ifdef FW_TEXT_START
 firmware-genflags-y += -DFW_TEXT_START=$(FW_TEXT_START)
 else
-firmware-genflags-y += -DFW_TEXT_START=0x0
+firmware-genflags-y += -DFW_TEXT_START=0x80100000
 endif
 
 ifdef FW_FDT_PATH
