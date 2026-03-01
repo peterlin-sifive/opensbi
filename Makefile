@@ -449,11 +449,7 @@ MERGEFLAGS	+=	-m elf$(PLATFORM_RISCV_XLEN)lriscv
 
 DTSCPPFLAGS	=	$(CPPFLAGS) -nostdinc -nostdlib -fno-builtin -D__DTS__ -x assembler-with-cpp
 
-ifneq ($(DEBUG),)
 CFLAGS		+=	-O0
-else
-CFLAGS		+=	-O2
-endif
 
 ifeq ($(V), 1)
 ELFFLAGS	+=	-Wl,--print-gc-sections
