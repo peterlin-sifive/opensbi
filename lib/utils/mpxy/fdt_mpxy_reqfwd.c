@@ -24,6 +24,10 @@ struct rpmi_message_slot {
 
 	/* Sender RX address. Should be MPXY shared memory */
 	void *sender_rx;
+	/* Maximum sender RX length */
+	u32 sender_rx_max_len;
+	/* Optional response transformation callback (TEE-specific) */
+	mpxy_reqfwd_transform_fn transform_fn;
 };
 
 #define REQFWD_MSG_FIFO_ENTRIES		4
@@ -86,7 +90,8 @@ int mpxy_reqfwd_forward_message(struct sbi_mpxy_channel *channel,
 				struct rpmi_message_header *header,
 				void *tx, u32 tx_len,
 				void *rx, u32 rx_max_len,
-				unsigned long *ack_len)
+				unsigned long *ack_len,
+				mpxy_reqfwd_transform_fn transform_fn)
 {
 	struct mpxy_reqfwd *reqfwd;
 	struct rpmi_message_slot msg;
@@ -103,6 +108,9 @@ int mpxy_reqfwd_forward_message(struct sbi_mpxy_channel *channel,
 	sbi_memcpy(msg.data, tx, tx_len);
 	/* Record RX information so that we can copy response into it later */
 	msg.sender_rx = rx;
+	msg.sender_rx_max_len = rx_max_len;
+	/* Store optional transformation callback for response processing */
+	msg.transform_fn = transform_fn;
 	sbi_fifo_enqueue(&reqfwd->msg_fifo, &msg, true);
 
 	if (reqfwd->is_waiting_message) {
@@ -175,13 +183,34 @@ static int mpxy_reqfwd_send_message_withresp(struct sbi_mpxy_channel *channel,
 		sbi_domain_context_exit();
 	} else if (RPMI_REQFWD_SRV_COMPLETE_CURRENT_MESSAGE == message_id) {
 		if (current_msg->header.servicegroup_id) {
-			/* Fill response data into RX of sender */
-			/* tx has a0~a4. Just skip a0 and copy a1~a4 here */
-			sbi_memcpy(current_msg->sender_rx, &(((ulong *)tx)[1]),
-				   tx_len - sizeof(ulong));
-			reqfwd->ack_len = tx_len - sizeof(ulong);
-			/* Clear cerrent message */
-			memset(&current_msg, 0, sizeof(current_msg));
+			/*
+			 * Fill response data into RX buffer of original sender.
+			 *
+			 * If a transformation callback was provided when the
+			 * message was forwarded, use it to transform the response
+			 * (e.g., OP-TEE skips the first register which contains
+			 * internal TEEABI return codes). Otherwise, copy the
+			 * response data directly without transformation.
+			 */
+			if (current_msg->transform_fn) {
+				rc = current_msg->transform_fn(
+					tx, tx_len,
+					current_msg->sender_rx,
+					current_msg->sender_rx_max_len,
+					&reqfwd->ack_len);
+				if (rc) {
+					/* STATUS */
+					((u32 *)rx)[0] = cpu_to_le32(RPMI_ERR_FAILED);
+					*ack_len = sizeof(u32);
+					return SBI_OK;
+				}
+			} else {
+				/* No transformation - copy response as-is */
+				sbi_memcpy(current_msg->sender_rx, tx, tx_len);
+				reqfwd->ack_len = tx_len;
+			}
+			/* Clear current message */
+			sbi_memset(current_msg, 0, sizeof(*current_msg));
 			/* STATUS */
 			((u32 *)rx)[0] = cpu_to_le32(RPMI_SUCCESS);
 		} else {
