@@ -1005,16 +1005,7 @@ enum rpmi_tee_impl_id {
 #define RPMI_TEE_OPTEE_COMM_REQ_REGS	8	/* a0-a7 */
 #define RPMI_TEE_OPTEE_COMM_RESP_REGS	4	/* a0-a3 */
 
-struct rpmi_tee_enable_notification_req {
-	u32 event_id;
-	u32 req_state;
-};
-
-struct rpmi_tee_enable_notification_resp {
-	s32 status;
-	u32 current_state;
-};
-
+/** TEE_GET_ATTRIBUTES response */
 struct rpmi_tee_get_attributes_resp {
 	s32 status;
 	u32 tee_impl_id;

@@ -101,7 +101,7 @@ int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
 
 	/* Setup dispatcher based on implementation ID */
 	switch (impl_id) {
-	case TEE_IMPL_ID_OPTEE:
+	case RPMI_TEE_IMPL_ID_OPTEE:
 		rc = optee_dispatcher_setup(fdt, nodeoff, dispatcher);
 		break;
 	default:
