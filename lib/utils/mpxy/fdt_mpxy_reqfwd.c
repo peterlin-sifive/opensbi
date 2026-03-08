@@ -188,9 +188,16 @@ static int mpxy_reqfwd_send_message_withresp(struct sbi_mpxy_channel *channel,
 			 *
 			 * If a transformation callback was provided when the
 			 * message was forwarded, use it to transform the response
-			 * (e.g., OP-TEE skips the first register which contains
-			 * internal TEEABI return codes). Otherwise, copy the
-			 * response data directly without transformation.
+			 * before copying to the sender's buffer.
+			 *
+			 * For OP-TEE: The callback strips the first register (a0)
+			 * which contains internal TEEABI_OPTEED_RETURN_* codes
+			 * (ENTRY_DONE, ON_DONE, CALL_DONE, FIQ_DONE, etc.).
+			 * These are internal signals between OP-TEE and OpenSBI,
+			 * not meant for the caller. The actual SMC return values
+			 * in a1-a4 are shifted to become a0-a3 for the caller.
+			 *
+			 * Without a callback, copy response data as-is.
 			 */
 			if (current_msg->transform_fn) {
 				rc = current_msg->transform_fn(

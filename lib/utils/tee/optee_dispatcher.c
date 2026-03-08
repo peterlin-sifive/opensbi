@@ -116,10 +116,30 @@ static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
  *
  * OP-TEE returns 5 unsigned longs (a0-a4) where:
  *
- *   a0 = TEEABI_OPTEED_RETURN_* (e.g., 0xBF000005 for CALL_DONE)
- *        This is an internal OP-TEE ABI code that signals what
- *        type of event completed (call done, FIQ done, etc.).
- *        It is consumed here and NOT forwarded to the caller.
+ *   a0 = TEEABI_OPTEED_RETURN_* code (internal signal to dispatcher)
+ *        This register contains an internal OP-TEE ABI code that signals
+ *        what type of event completed. On RISC-V, only these are used:
+ *
+ *          - TEEABI_OPTEED_RETURN_ENTRY_DONE  (0xBE000001)
+ *            OP-TEE primary hart initialization complete.
+ *
+ *          - TEEABI_OPTEED_RETURN_ON_DONE     (0xBE000002)
+ *            OP-TEE secondary hart boot complete.
+ *
+ *          - TEEABI_OPTEED_RETURN_CALL_DONE   (0xBE000005)
+ *            A standard SMC call to OP-TEE has completed.
+ *            This is the most common code for normal TEE operations.
+ *
+ *          - TEEABI_OPTEED_RETURN_FIQ_DONE    (0xBE000006)
+ *            OP-TEE has finished handling a forwarded FIQ.
+ *
+ *        Note: OFF_DONE, SUSPEND_DONE, RESUME_DONE, SYSTEM_OFF_DONE,
+ *        SYSTEM_RESET_DONE are defined but NOT used on RISC-V because
+ *        power management is handled directly by OpenSBI SBI extensions
+ *        (HSM, SRST), not through OP-TEE.
+ *
+ *        These codes are internal signals between OP-TEE and OpenSBI.
+ *        They are NOT part of the SMC calling convention that Linux uses.
  *
  *   a1 = SMC return value (e.g., OPTEE_SMC_RETURN_OK)
  *        This becomes the caller's a0.
@@ -127,10 +147,9 @@ static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
  *   a2-a4 = Additional return values
  *        These become the caller's a1-a3.
  *
- * We intentionally SKIP a0 because:
- * 1. It's an internal signal between OP-TEE and OpenSBI
- * 2. Linux expects SMC results in a0-a3, not internal codes
- * 3. The TEEABI_OPTEED_RETURN_* codes have no meaning to Linux
+ * This callback ALWAYS strips a0, regardless of which TEEABI_OPTEED_RETURN_*
+ * code it contains, because all return codes are internal dispatcher signals.
+ * Linux expects SMC results in a0-a3 per the SMC Calling Convention.
  */
 static int optee_transform_response(void *tx, u32 tx_len,
 				    void *rx, u32 rx_max_len,
