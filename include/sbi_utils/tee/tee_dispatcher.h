@@ -120,7 +120,6 @@ int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
 /**
  * TEE dispatcher setup functions
  * Each TEE implementation provides its own setup function.
- * When CONFIG is disabled, an empty stub is provided.
  */
 #ifdef CONFIG_FDT_TEE_OPTEE
 int optee_dispatcher_setup(const void *fdt, int nodeoff,
