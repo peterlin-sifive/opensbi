@@ -24,8 +24,8 @@
 struct mpxy_tee {
 	/** TEE dispatcher */
 	struct tee_dispatcher *dispatcher;
-	/** Cached TEE attributes */
-	struct tee_attributes cached_attrs;
+	/** TEE attributes */
+	struct tee_attributes attrs;
 	/** RPMI channel attributes */
 	struct mpxy_rpmi_channel_attrs msgprot_attrs;
 	/** MPXY channel */
@@ -66,6 +66,7 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 {
 	struct mpxy_tee *tee =
 		container_of(channel, struct mpxy_tee, channel);
+	struct rpmi_tee_get_attributes_resp *attr_resp;
 	int rc = SBI_OK;
 
 	if (!tee->dispatcher)
@@ -73,12 +74,14 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 
 	switch (msg_id) {
 	case RPMI_TEE_SRV_GET_ATTRIBUTES:
-		/* Return cached attributes */
-		if (resp_max_len < 2 * sizeof(u32))
+		if (resp_max_len < sizeof(*attr_resp))
 			return SBI_ENOMEM;
-		((u32 *)respbuf)[0] = cpu_to_le32(RPMI_SUCCESS);
-		((u32 *)respbuf)[1] = cpu_to_le32(tee->cached_attrs.tee_impl_id);
-		*resp_len = 2 * sizeof(u32);
+		attr_resp = respbuf;
+		attr_resp->status = cpu_to_le32(RPMI_SUCCESS);
+		attr_resp->tee_impl_id = cpu_to_le32(tee->attrs.tee_impl_id);
+		attr_resp->comm_req_regs = cpu_to_le32(tee->attrs.comm_req_regs);
+		attr_resp->comm_resp_regs = cpu_to_le32(tee->attrs.comm_resp_regs);
+		*resp_len = sizeof(*attr_resp);
 		break;
 
 	case RPMI_TEE_SRV_COMMUNICATE:
@@ -156,10 +159,10 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 	if (rc)
 		goto fail_free;
 
-	/* Get and cache TEE attributes */
+	/* Get TEE attributes */
 	if (tee->dispatcher->ops->get_attributes) {
 		rc = tee->dispatcher->ops->get_attributes(
-			tee->dispatcher, &tee->cached_attrs);
+			tee->dispatcher, &tee->attrs);
 		if (rc)
 			goto fail_free;
 	}
