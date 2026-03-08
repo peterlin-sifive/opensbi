@@ -20,17 +20,23 @@
 #include <sbi_utils/mailbox/rpmi_mailbox.h>
 #include <sbi_utils/tee/tee_dispatcher.h>
 
-/** TEE MPXY channel context */
+/**
+ * TEE MPXY channel context
+ *
+ * This structure represents a per-hart TEE Service Group MPXY channel.
+ * Each hart has its own mpxy_tee instance that routes TEE_COMMUNICATE
+ * requests to the appropriate TEE dispatcher.
+ */
 struct mpxy_tee {
-	/** TEE dispatcher */
+	/** TEE dispatcher shared across harts for same TEE Implementation */
 	struct tee_dispatcher *dispatcher;
 	/** TEE attributes */
 	struct tee_attributes attrs;
-	/** RPMI channel attributes */
+	/** RPMI channel attributes for MPXY */
 	struct mpxy_rpmi_channel_attrs msgprot_attrs;
-	/** MPXY channel */
+	/** MPXY channel instance */
 	struct sbi_mpxy_channel channel;
-	/** Owner hart ID */
+	/** Hart ID that owns this TEE MPXY channel */
 	u32 hartid;
 };
 
