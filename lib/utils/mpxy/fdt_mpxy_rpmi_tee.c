@@ -86,24 +86,50 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 
 	case RPMI_TEE_SRV_COMMUNICATE:
 		/*
-		 * TEE_COMMUNICATE uses implementation-specific data format.
-		 * Forward the entire request to the dispatcher.
+		 * TEE_COMMUNICATE response format:
+		 *   Word 0:    STATUS (RPMI error code)
+		 *   Word 1..M: Implementation-specific data
+		 *
+		 * Reserve space for STATUS, pass remaining buffer to dispatcher.
 		 */
+		if (resp_max_len < sizeof(s32)) {
+			rc = SBI_ENOMEM;
+			break;
+		}
+
 		if (tee->dispatcher->ops->communicate) {
+			unsigned long data_len = 0;
+			s32 *status = (s32 *)respbuf;
+			void *data_buf = (u8 *)respbuf + sizeof(s32);
+			u32 data_max_len = resp_max_len - sizeof(s32);
+
 			rc = tee->dispatcher->ops->communicate(
 				tee->dispatcher,
 				msgbuf, msg_len,
-				respbuf, resp_max_len,
-				resp_len);
+				data_buf, data_max_len,
+				&data_len);
 
-			/* Enter TEE domain if supported */
-			if (!rc && tee->dispatcher->ops->domain_enter) {
-				rc = tee->dispatcher->ops->domain_enter(
-					tee->dispatcher);
+			/* Set RPMI status based on dispatcher result */
+			if (rc) {
+				*status = cpu_to_le32(RPMI_ERR_FAILED);
+				*resp_len = sizeof(s32);
+			} else {
+				*status = cpu_to_le32(RPMI_SUCCESS);
+				*resp_len = sizeof(s32) + data_len;
+
+				/* Enter TEE domain if supported */
+				if (tee->dispatcher->ops->domain_enter) {
+					rc = tee->dispatcher->ops->domain_enter(
+						tee->dispatcher);
+					if (rc) {
+						*status = cpu_to_le32(RPMI_ERR_FAILED);
+						*resp_len = sizeof(s32);
+					}
+				}
 			}
 		} else {
-			((u32 *)respbuf)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
-			*resp_len = sizeof(u32);
+			((s32 *)respbuf)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);
+			*resp_len = sizeof(s32);
 		}
 		break;
 
