@@ -21,21 +21,27 @@
 /**
  * OP-TEE specific context
  *
- * This context binds an OP-TEE dispatcher to a request forward channel.
- * The reqfwd channel is used to forward TEE_COMMUNICATE requests to the
- * OP-TEE domain running on this hart.
+ * This context binds an OP-TEE dispatcher to a request forward channel
+ * and the OP-TEE domain. The reqfwd channel is used to forward
+ * TEE_COMMUNICATE requests to the OP-TEE domain.
  */
 struct optee_context {
-	/** Domain name from device tree (for deferred lookup) */
-	char domain_name[64];
-	/** Pointer to OP-TEE domain (resolved at runtime) */
+	/** Pointer to OP-TEE domain (bound during init) */
 	struct sbi_domain *domain;
-	/** Request forward channel ID for this hart's TEE communication */
+	/** Request forward channel ID for TEE communication */
 	u32 reqfwd_channel_id;
 };
 
 /**
  * Setup OP-TEE domain from device tree
+ *
+ * This function extracts the domain from the device tree and binds it to
+ * the OP-TEE context. This MUST be called after sbi_domain_finalize() so
+ * that all domains are available.
+ *
+ * Note: sbi_init.c guarantees that sbi_mpxy_init() runs AFTER
+ * sbi_domain_finalize(), so the domain lookup should always succeed.
+ * If it fails, it indicates a device tree configuration error.
  */
 static int optee_domain_setup(const void *fdt, int nodeoff,
 			      struct optee_context *ctx)
@@ -43,6 +49,7 @@ static int optee_domain_setup(const void *fdt, int nodeoff,
 	struct sbi_domain *dom = NULL;
 	const u32 *prop_instance;
 	int len, offset;
+	const char *domain_name;
 
 	prop_instance = fdt_getprop(fdt, nodeoff, "opensbi-domain-instance",
 				    &len);
@@ -53,37 +60,24 @@ static int optee_domain_setup(const void *fdt, int nodeoff,
 	if (offset < 0)
 		return SBI_EINVAL;
 
-	sbi_strncpy(ctx->domain_name, fdt_get_name(fdt, offset, NULL),
-		    sizeof(ctx->domain_name));
-	ctx->domain_name[sizeof(ctx->domain_name) - 1] = '\0';
+	domain_name = fdt_get_name(fdt, offset, NULL);
+	if (!domain_name)
+		return SBI_EINVAL;
 
+	/* Find and bind the domain */
 	sbi_domain_for_each(dom) {
-		if (!sbi_strcmp(dom->name, ctx->domain_name)) {
-			ctx->domain = dom;
-			break;
-		}
-	}
-
-	return SBI_OK;
-}
-
-/**
- * Deferred domain setup (called when domain is used)
- */
-static int optee_domain_setup_deferred(struct optee_context *ctx)
-{
-	struct sbi_domain *dom = NULL;
-
-	if (ctx->domain)
-		return SBI_OK;
-
-	sbi_domain_for_each(dom) {
-		if (!sbi_strcmp(dom->name, ctx->domain_name)) {
+		if (!sbi_strcmp(dom->name, domain_name)) {
 			ctx->domain = dom;
 			return SBI_OK;
 		}
 	}
 
+	/*
+	 * Domain not found - this is a configuration error.
+	 * Either the domain name in DT is wrong, or sbi_mpxy_init() was
+	 * called before sbi_domain_finalize() (which violates the expected
+	 * initialization order in sbi_init.c).
+	 */
 	return SBI_ENOENT;
 }
 
@@ -223,19 +217,19 @@ static int optee_communicate(const struct tee_dispatcher *dispatcher,
 
 /**
  * Enter OP-TEE domain
+ *
+ * This function switches execution context to the OP-TEE domain.
+ * It blocks until OP-TEE processing completes and domain_exit is called.
  */
 static int optee_domain_enter(const struct tee_dispatcher *dispatcher)
 {
 	struct optee_context *ctx = dispatcher->context;
-	int rc;
 
 	if (!ctx)
 		return SBI_EINVAL;
 
-	/* Try deferred domain setup if not done yet */
-	rc = optee_domain_setup_deferred(ctx);
-	if (rc)
-		return rc;
+	if (!ctx->domain)
+		return SBI_ENOENT;
 
 	return sbi_domain_context_enter(ctx->domain);
 }
