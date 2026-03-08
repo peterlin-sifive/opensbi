@@ -20,16 +20,18 @@
 
 /**
  * OP-TEE specific context
+ *
+ * This context binds an OP-TEE dispatcher to a request forward channel.
+ * The reqfwd channel is used to forward TEE_COMMUNICATE requests to the
+ * OP-TEE domain running on this hart.
  */
 struct optee_context {
-	/** Domain name from device tree */
+	/** Domain name from device tree (for deferred lookup) */
 	char domain_name[64];
-	/** Pointer to OP-TEE domain */
+	/** Pointer to OP-TEE domain (resolved at runtime) */
 	struct sbi_domain *domain;
-	/** Request forward channel ID */
+	/** Request forward channel ID for this hart's TEE communication */
 	u32 reqfwd_channel_id;
-	/** Owner hart ID */
-	u32 hartid;
 };
 
 /**
@@ -192,16 +194,12 @@ int optee_dispatcher_setup(const void *fdt, int nodeoff,
 	if (!ctx)
 		return SBI_ENOMEM;
 
-	/* Get parent CPU node to extract hartid */
+	/* Get parent CPU node to find sibling reqfwd channel */
 	cpu_offset = fdt_parent_offset(fdt, nodeoff);
 	if (cpu_offset < 0) {
 		rc = SBI_EINVAL;
 		goto fail_free_ctx;
 	}
-
-	rc = fdt_parse_hart_id(fdt, cpu_offset, &ctx->hartid);
-	if (rc)
-		goto fail_free_ctx;
 
 	/* Find sibling reqfwd node to get reqfwd channel id */
 	fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
