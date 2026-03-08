@@ -37,8 +37,6 @@ struct mpxy_tee {
 	struct mpxy_rpmi_channel_attrs msgprot_attrs;
 	/** MPXY channel instance */
 	struct sbi_mpxy_channel channel;
-	/** Hart ID that owns this TEE MPXY channel */
-	u32 hartid;
 };
 
 /**
@@ -207,8 +205,6 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 	rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
 	if (rc)
 		goto fail_free;
-
-	tee->hartid = hartid;
 
 	/* Setup TEE dispatcher from device tree */
 	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee->dispatcher);
