@@ -68,6 +68,20 @@ struct tee_dispatcher_ops {
 	 * @return 0 on success, negative error code on failure
 	 */
 	int (*domain_enter)(const struct tee_dispatcher *dispatcher);
+
+	/**
+	 * Register a hart with the TEE (optional, for per-hart setup)
+	 * Called during per-hart TEE MPXY channel initialization.
+	 * TEE implementations can use this for per-hart resource binding
+	 * (e.g., OP-TEE uses this to parse and bind sibling reqfwd channels).
+	 * @param dispatcher: TEE dispatcher instance
+	 * @param fdt: Device tree blob
+	 * @param nodeoff: TEE node offset in the device tree
+	 * @param hart_index: Hart index (0-based, from sbi_hartid_to_hartindex())
+	 * @return 0 on success, negative error code on failure
+	 */
+	int (*register_hart)(const struct tee_dispatcher *dispatcher,
+			     const void *fdt, int nodeoff, u32 hart_index);
 };
 
 /**

@@ -14,6 +14,7 @@
 #include <sbi/sbi_error.h>
 #include <sbi/sbi_heap.h>
 #include <sbi/sbi_mpxy.h>
+#include <sbi/sbi_scratch.h>
 #include <sbi/sbi_string.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/mpxy/fdt_mpxy_rpmi_mbox.h>
@@ -170,6 +171,9 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 
 /**
  * Initialize TEE MPXY channel
+ *
+ * Each hart has its own TEE MPXY channel. The dispatcher handles any
+ * TEE-specific per-hart setup (e.g., OP-TEE's reqfwd channel binding).
  */
 static int mpxy_tee_init(const void *fdt, int nodeoff,
 			 const struct fdt_match *match)
@@ -210,6 +214,20 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee->dispatcher);
 	if (rc)
 		goto fail_free;
+
+	/*
+	 * Register this hart with the TEE dispatcher (optional).
+	 * TEE implementations that need per-hart setup implement this callback.
+	 * For OP-TEE: parses sibling reqfwd channel and stores per-hart channel ID.
+	 * For other TEEs: may have different per-hart setup or none at all.
+	 */
+	if (tee->dispatcher->ops->register_hart) {
+		rc = tee->dispatcher->ops->register_hart(
+			tee->dispatcher, fdt, nodeoff,
+			sbi_hartid_to_hartindex(hartid));
+		if (rc)
+			goto fail_free;
+	}
 
 	/* Get TEE attributes */
 	if (tee->dispatcher->ops->get_attributes) {

@@ -13,6 +13,7 @@
 #include <sbi/sbi_domain.h>
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_mpxy.h>
+#include <sbi/sbi_scratch.h>
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/tee/tee_dispatcher.h>
 #include <sbi_utils/mpxy/fdt_mpxy_rpmi_mbox.h>
@@ -21,15 +22,16 @@
 /**
  * OP-TEE specific context
  *
- * This context binds an OP-TEE dispatcher to a request forward channel
- * and the OP-TEE domain. The reqfwd channel is used to forward
- * TEE_COMMUNICATE requests to the OP-TEE domain.
+ * This context holds OP-TEE domain reference and per-hart reqfwd channel IDs.
+ * The domain is shared across all harts as OP-TEE has a single domain instance.
+ * The reqfwd_channel_ids array is indexed by hart_index (0-based contiguous),
+ * NOT hartid, to ensure correct indexing regardless of hartid assignment.
  */
 struct optee_context {
 	/** Pointer to OP-TEE domain (bound during init) */
 	struct sbi_domain *domain;
-	/** Request forward channel ID for TEE communication */
-	u32 reqfwd_channel_id;
+	/** Per-hart reqfwd channel IDs, indexed by hart_index */
+	u32 reqfwd_channel_ids[SBI_HARTMASK_MAX_BITS];
 };
 
 /**
@@ -175,6 +177,17 @@ static int optee_transform_response(void *tx, u32 tx_len,
  * OP-TEE uses SMC-style parameters (a0-a7) for communication.
  * The request data contains 8 unsigned long values representing
  * the SMC parameters, and the response contains 4 return values.
+ *
+ * The per-hart reqfwd channel is looked up using current_hartindex(),
+ * which returns the 0-based contiguous hart index.
+ *
+ * @param dispatcher: TEE dispatcher instance
+ * @param tx_data: Request data buffer
+ * @param tx_len: Size of request data
+ * @param rx_data: Response data buffer
+ * @param rx_max_len: Maximum size of response buffer
+ * @param rx_len: Actual size of response data written
+ * @return 0 on success, negative error code on failure
  */
 static int optee_communicate(const struct tee_dispatcher *dispatcher,
 			     void *tx_data, u32 tx_len,
@@ -184,13 +197,24 @@ static int optee_communicate(const struct tee_dispatcher *dispatcher,
 	struct optee_context *ctx = dispatcher->context;
 	struct sbi_mpxy_channel *recv_channel;
 	struct rpmi_message_header header;
+	u32 hart_index;
+	u32 reqfwd_channel_id;
 	int rc;
 
 	if (!ctx)
 		return SBI_EINVAL;
 
-	/* Find request forward channel */
-	recv_channel = sbi_mpxy_find_channel(ctx->reqfwd_channel_id);
+	/* Get current hart's index and look up its reqfwd channel ID */
+	hart_index = current_hartindex();
+	if (hart_index >= SBI_HARTMASK_MAX_BITS)
+		return SBI_EINVAL;
+
+	reqfwd_channel_id = ctx->reqfwd_channel_ids[hart_index];
+	if (reqfwd_channel_id == 0)
+		return SBI_ENODEV;
+
+	/* Find per-hart request forward channel */
+	recv_channel = sbi_mpxy_find_channel(reqfwd_channel_id);
 	if (!recv_channel)
 		return SBI_ENODEV;
 
@@ -234,54 +258,98 @@ static int optee_domain_enter(const struct tee_dispatcher *dispatcher)
 	return sbi_domain_context_enter(ctx->domain);
 }
 
-/** OP-TEE dispatcher operations */
-static const struct tee_dispatcher_ops optee_ops = {
-	.get_attributes = optee_get_attributes,
-	.communicate = optee_communicate,
-	.domain_enter = optee_domain_enter,
-};
-
 /**
- * Setup OP-TEE dispatcher from device tree
+ * Register a hart with OP-TEE dispatcher
+ *
+ * This function is called via dispatcher->ops->register_hart() during per-hart
+ * TEE MPXY channel initialization. It parses the sibling reqfwd channel from
+ * the device tree and stores the per-hart reqfwd channel ID in the OP-TEE context.
+ *
+ * The reqfwd channel is found by scanning sibling nodes under the same CPU node:
+ *   cpu@N {
+ *       rpmi_tee_N { ... };      <- TEE channel (nodeoff)
+ *       rpmi_reqfwd_N { ... };   <- reqfwd channel (sibling, parsed here)
+ *   };
+ *
+ * @param dispatcher: TEE dispatcher instance
+ * @param fdt: Device tree blob
+ * @param nodeoff: TEE node offset in the device tree
+ * @param hart_index: Hart index (0-based, from sbi_hartid_to_hartindex())
+ * @return 0 on success, negative error code on failure
  */
-int optee_dispatcher_setup(const void *fdt, int nodeoff,
-			   struct tee_dispatcher *dispatcher)
+static int optee_register_hart(const struct tee_dispatcher *dispatcher,
+			       const void *fdt, int nodeoff, u32 hart_index)
 {
 	struct optee_context *ctx;
 	const fdt32_t *val;
-	int rc, len, cpu_offset, sibling_offset;
+	int len, cpu_offset, sibling_offset;
+	u32 reqfwd_channel_id;
 	bool found_reqfwd = false;
 
-	/* Allocate OP-TEE context */
-	ctx = sbi_zalloc(sizeof(*ctx));
-	if (!ctx)
-		return SBI_ENOMEM;
+	if (!dispatcher || !dispatcher->context)
+		return SBI_EINVAL;
+
+	if (hart_index >= SBI_HARTMASK_MAX_BITS)
+		return SBI_EINVAL;
+
+	ctx = dispatcher->context;
 
 	/* Get parent CPU node to find sibling reqfwd channel */
 	cpu_offset = fdt_parent_offset(fdt, nodeoff);
-	if (cpu_offset < 0) {
-		rc = SBI_EINVAL;
-		goto fail_free_ctx;
-	}
+	if (cpu_offset < 0)
+		return SBI_EINVAL;
 
-	/* Find sibling reqfwd node to get reqfwd channel id */
+	/*
+	 * Find sibling reqfwd node under the same CPU node.
+	 * The reqfwd channel is OP-TEE specific and must be found for
+	 * each hart to support parallel TEE calls.
+	 */
 	fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
 		if (!fdt_node_check_compatible(fdt, sibling_offset,
 					       "riscv,sbi-mpxy-reqfwd")) {
 			val = fdt_getprop(fdt, sibling_offset,
 					  "riscv,sbi-mpxy-channel-id", &len);
 			if (len > 0 && val) {
-				ctx->reqfwd_channel_id = fdt32_to_cpu(*val);
+				reqfwd_channel_id = fdt32_to_cpu(*val);
 				found_reqfwd = true;
 				break;
 			}
 		}
 	}
 
-	if (!found_reqfwd) {
-		rc = SBI_ENOENT;
-		goto fail_free_ctx;
-	}
+	if (!found_reqfwd)
+		return SBI_ENOENT;
+
+	ctx->reqfwd_channel_ids[hart_index] = reqfwd_channel_id;
+
+	return SBI_OK;
+}
+
+/** OP-TEE dispatcher operations */
+static const struct tee_dispatcher_ops optee_ops = {
+	.get_attributes = optee_get_attributes,
+	.communicate = optee_communicate,
+	.domain_enter = optee_domain_enter,
+	.register_hart = optee_register_hart,
+};
+
+/**
+ * Setup OP-TEE dispatcher from device tree
+ *
+ * This function creates a shared OP-TEE dispatcher context. The dispatcher
+ * is shared across all harts, while per-hart state (reqfwd_channel_id) is
+ * managed by the mpxy_tee layer.
+ */
+int optee_dispatcher_setup(const void *fdt, int nodeoff,
+			   struct tee_dispatcher *dispatcher)
+{
+	struct optee_context *ctx;
+	int rc;
+
+	/* Allocate OP-TEE context */
+	ctx = sbi_zalloc(sizeof(*ctx));
+	if (!ctx)
+		return SBI_ENOMEM;
 
 	/* Setup OP-TEE domain */
 	rc = optee_domain_setup(fdt, nodeoff, ctx);
@@ -300,4 +368,3 @@ fail_free_ctx:
 	sbi_free(ctx);
 	return rc;
 }
-
