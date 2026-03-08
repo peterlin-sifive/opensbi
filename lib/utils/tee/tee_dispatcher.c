@@ -62,10 +62,6 @@ struct tee_dispatcher *tee_dispatcher_find(u32 impl_id)
 	return NULL;
 }
 
-/* Forward declaration for OP-TEE dispatcher setup */
-extern int optee_dispatcher_setup(const void *fdt, int nodeoff,
-				  struct tee_dispatcher *dispatcher);
-
 /**
  * Setup TEE dispatcher from device tree
  */
@@ -124,4 +120,3 @@ int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
 	*out_dispatcher = dispatcher;
 	return SBI_OK;
 }
-

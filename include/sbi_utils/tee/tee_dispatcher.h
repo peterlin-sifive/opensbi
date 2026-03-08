@@ -117,5 +117,21 @@ struct tee_dispatcher *tee_dispatcher_find(u32 impl_id);
 int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
 				  struct tee_dispatcher **dispatcher);
 
+/**
+ * TEE dispatcher setup functions
+ * Each TEE implementation provides its own setup function.
+ * When CONFIG is disabled, an empty stub is provided.
+ */
+#ifdef CONFIG_FDT_TEE_OPTEE
+int optee_dispatcher_setup(const void *fdt, int nodeoff,
+			   struct tee_dispatcher *dispatcher);
+#else
+static inline int optee_dispatcher_setup(const void *fdt, int nodeoff,
+					 struct tee_dispatcher *dispatcher)
+{
+	return SBI_ENODEV;
+}
+#endif
+
 #endif /* __TEE_DISPATCHER_H__ */
 
