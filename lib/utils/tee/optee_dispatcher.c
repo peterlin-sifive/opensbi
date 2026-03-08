@@ -28,7 +28,7 @@
  * NOT hartid, to ensure correct indexing regardless of hartid assignment.
  */
 struct optee_context {
-	/** Pointer to OP-TEE domain (bound during init) */
+	/** Pointer to OP-TEE domain */
 	struct sbi_domain *domain;
 	/** Per-hart reqfwd channel IDs, indexed by hart_index */
 	u32 reqfwd_channel_ids[SBI_HARTMASK_MAX_BITS];
