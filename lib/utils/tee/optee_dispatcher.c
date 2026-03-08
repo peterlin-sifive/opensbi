@@ -26,14 +26,18 @@
  * The domain is shared across all harts as OP-TEE has a single domain instance.
  * The reqfwd_channel_ids array is indexed by hart_index (0-based contiguous),
  * NOT hartid, to ensure correct indexing regardless of hartid assignment.
+ *
+ * The reqfwd_channel_ids pointer is dynamically allocated with exact size
+ * needed (num_harts entries). A NULL pointer indicates the reqfwd channels
+ * have not been initialized.
  */
 struct optee_context {
 	/** Pointer to OP-TEE domain */
 	struct sbi_domain *domain;
 	/** Per-hart reqfwd channel IDs, indexed by hart_index */
-	u32 reqfwd_channel_ids[SBI_HARTMASK_MAX_BITS];
-	/** Flag indicating reqfwd_channel_ids array is initialized */
-	bool reqfwd_channels_inited;
+	u32 *reqfwd_channel_ids;
+	/** Number of harts (size of reqfwd_channel_ids array) */
+	u32 num_harts;
 };
 
 /**
@@ -206,9 +210,13 @@ static int optee_communicate(const struct tee_dispatcher *dispatcher,
 	if (!ctx)
 		return SBI_EINVAL;
 
+	/* Check if reqfwd channels have been initialized */
+	if (!ctx->reqfwd_channel_ids)
+		return SBI_EINVAL;
+
 	/* Get current hart's index and look up its reqfwd channel ID */
 	hart_index = current_hartindex();
-	if (hart_index >= SBI_HARTMASK_MAX_BITS)
+	if (hart_index >= ctx->num_harts)
 		return SBI_EINVAL;
 
 	reqfwd_channel_id = ctx->reqfwd_channel_ids[hart_index];
@@ -268,25 +276,134 @@ static const struct tee_dispatcher_ops optee_ops = {
 };
 
 /**
+ * Find reqfwd channel ID for a CPU node
+ *
+ * Searches for a sibling "riscv,sbi-mpxy-reqfwd" node under the same CPU node
+ * and returns its channel ID.
+ *
+ * @param fdt: Device tree blob
+ * @param cpu_offset: CPU node offset
+ * @param channel_id: Output parameter for the reqfwd channel ID
+ * @return true if found, false otherwise
+ */
+static bool optee_find_reqfwd_channel(const void *fdt, int cpu_offset,
+				      u32 *channel_id)
+{
+	int child_offset, sibling_offset;
+	const fdt32_t *val;
+	int len;
+
+	/* Find TEE node under this CPU */
+	fdt_for_each_subnode(child_offset, fdt, cpu_offset) {
+		if (fdt_node_check_compatible(fdt, child_offset,
+					      "riscv,rpmi-mpxy-tee"))
+			continue;
+
+		/* Found TEE node, now find sibling reqfwd node */
+		fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
+			if (fdt_node_check_compatible(fdt, sibling_offset,
+						      "riscv,sbi-mpxy-reqfwd"))
+				continue;
+
+			val = fdt_getprop(fdt, sibling_offset,
+					  "riscv,sbi-mpxy-channel-id", &len);
+			if (len > 0 && val) {
+				*channel_id = fdt32_to_cpu(*val);
+				return true;
+			}
+		}
+		break;
+	}
+
+	return false;
+}
+
+/**
+ * Count harts with reqfwd channels and find max hart_index
+ *
+ * Iterates all CPU nodes to determine how many harts have reqfwd channels
+ * and what the maximum hart_index is (to size the allocation).
+ *
+ * @param fdt: Device tree blob
+ * @param cpus_offset: /cpus node offset
+ * @param max_hart_index: Output parameter for maximum hart_index found
+ * @return Number of harts with reqfwd channels, 0 if none found
+ */
+static u32 optee_count_reqfwd_harts(const void *fdt, int cpus_offset,
+				    u32 *max_hart_index)
+{
+	int cpu_offset;
+	u32 hartid, hart_index;
+	u32 channel_id;
+	u32 count = 0;
+	int rc;
+
+	*max_hart_index = 0;
+
+	fdt_for_each_subnode(cpu_offset, fdt, cpus_offset) {
+		if (fdt_node_check_compatible(fdt, cpu_offset, "riscv") != 0)
+			continue;
+
+		rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
+		if (rc)
+			continue;
+
+		hart_index = sbi_hartid_to_hartindex(hartid);
+		if (hart_index >= SBI_HARTMASK_MAX_BITS)
+			continue;
+
+		if (optee_find_reqfwd_channel(fdt, cpu_offset, &channel_id)) {
+			if (hart_index > *max_hart_index)
+				*max_hart_index = hart_index;
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * Populate reqfwd channel IDs array
+ *
+ * Iterates all CPU nodes and fills in the reqfwd channel ID for each hart.
+ *
+ * @param fdt: Device tree blob
+ * @param cpus_offset: /cpus node offset
+ * @param channel_ids: Array to populate (indexed by hart_index)
+ * @param num_harts: Size of channel_ids array
+ */
+static void optee_populate_reqfwd_channels(const void *fdt, int cpus_offset,
+					   u32 *channel_ids, u32 num_harts)
+{
+	int cpu_offset;
+	u32 hartid, hart_index;
+	u32 channel_id;
+	int rc;
+
+	fdt_for_each_subnode(cpu_offset, fdt, cpus_offset) {
+		if (fdt_node_check_compatible(fdt, cpu_offset, "riscv") != 0)
+			continue;
+
+		rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
+		if (rc)
+			continue;
+
+		hart_index = sbi_hartid_to_hartindex(hartid);
+		if (hart_index >= num_harts)
+			continue;
+
+		if (optee_find_reqfwd_channel(fdt, cpu_offset, &channel_id))
+			channel_ids[hart_index] = channel_id;
+	}
+}
+
+/**
  * Setup per-hart reqfwd channels from device tree
  *
  * This function iterates ALL CPU nodes in the device tree and sets up
- * reqfwd channel IDs for each hart. It is called once from optee_dispatcher_setup()
- * rather than per-hart during channel initialization.
- *
- * For each CPU node, it:
- *   1. Finds child nodes with "riscv,rpmi-mpxy-tee" compatible
- *   2. For each TEE node, finds sibling "riscv,sbi-mpxy-reqfwd" node
- *   3. Extracts hartid, converts to hart_index
- *   4. Stores reqfwd_channel_id in ctx->reqfwd_channel_ids[hart_index]
- *
- * Device tree structure:
- *   cpus {
- *       cpu@N {
- *           rpmi_tee_N { compatible = "riscv,rpmi-mpxy-tee"; ... };
- *           rpmi_reqfwd_N { compatible = "riscv,sbi-mpxy-reqfwd"; ... };
- *       };
- *   };
+ * reqfwd channel IDs for each hart. Uses a two-pass approach:
+ *   1. First pass: count harts and find max hart_index to determine array size
+ *   2. Second pass: fill in the channel IDs
  *
  * @param fdt: Device tree blob
  * @param ctx: OP-TEE context to populate
@@ -295,68 +412,29 @@ static const struct tee_dispatcher_ops optee_ops = {
 static int optee_reqfwd_channels_setup(const void *fdt,
 				       struct optee_context *ctx)
 {
-	int cpus_offset, cpu_offset, child_offset, sibling_offset;
-	const fdt32_t *val;
-	u32 hartid, hart_index, reqfwd_channel_id;
-	int len, rc;
-	bool found_any = false;
+	int cpus_offset;
+	u32 max_hart_index = 0;
+	u32 num_harts, count;
 
 	/* Find /cpus node */
 	cpus_offset = fdt_path_offset(fdt, "/cpus");
 	if (cpus_offset < 0)
 		return SBI_ENOENT;
 
-	/* Iterate all CPU nodes */
-	fdt_for_each_subnode(cpu_offset, fdt, cpus_offset) {
-		/* Skip non-cpu nodes (e.g., cpu-map) */
-		if (fdt_node_check_compatible(fdt, cpu_offset, "riscv") != 0)
-			continue;
-
-		/* Get hartid for this CPU */
-		rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
-		if (rc)
-			continue;
-
-		/* Convert hartid to hart_index */
-		hart_index = sbi_hartid_to_hartindex(hartid);
-		if (hart_index >= SBI_HARTMASK_MAX_BITS)
-			continue;
-
-		/* Find TEE child node under this CPU */
-		fdt_for_each_subnode(child_offset, fdt, cpu_offset) {
-			if (fdt_node_check_compatible(fdt, child_offset,
-						      "riscv,rpmi-mpxy-tee"))
-				continue;
-
-			/*
-			 * Found TEE node, now find sibling reqfwd node.
-			 * The reqfwd channel is OP-TEE specific and must be
-			 * found for each hart to support parallel TEE calls.
-			 */
-			fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
-				if (fdt_node_check_compatible(fdt, sibling_offset,
-							      "riscv,sbi-mpxy-reqfwd"))
-					continue;
-
-				val = fdt_getprop(fdt, sibling_offset,
-						  "riscv,sbi-mpxy-channel-id", &len);
-				if (len > 0 && val) {
-					reqfwd_channel_id = fdt32_to_cpu(*val);
-					ctx->reqfwd_channel_ids[hart_index] =
-						reqfwd_channel_id;
-					found_any = true;
-					break;
-				}
-			}
-			/* Only process first TEE node per CPU */
-			break;
-		}
-	}
-
-	if (!found_any)
+	count = optee_count_reqfwd_harts(fdt, cpus_offset, &max_hart_index);
+	if (count == 0)
 		return SBI_ENOENT;
 
-	ctx->reqfwd_channels_inited = true;
+	num_harts = max_hart_index + 1;
+	ctx->reqfwd_channel_ids = sbi_zalloc(num_harts * sizeof(u32));
+	if (!ctx->reqfwd_channel_ids)
+		return SBI_ENOMEM;
+
+	ctx->num_harts = num_harts;
+
+	optee_populate_reqfwd_channels(fdt, cpus_offset,
+				       ctx->reqfwd_channel_ids, num_harts);
+
 	return SBI_OK;
 }
 
@@ -403,6 +481,8 @@ int optee_dispatcher_setup(const void *fdt, int nodeoff,
 	return SBI_OK;
 
 fail_free_ctx:
+	if (ctx->reqfwd_channel_ids)
+		sbi_free(ctx->reqfwd_channel_ids);
 	sbi_free(ctx);
 	return rc;
 }
