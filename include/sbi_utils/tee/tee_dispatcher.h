@@ -77,7 +77,7 @@ struct tee_dispatcher_ops {
 struct tee_dispatcher {
 	/** List head for dispatcher registry */
 	struct sbi_dlist head;
-	/** TEE implementation ID (TEE_IMPL_ID_xxx) */
+	/** TEE implementation ID */
 	u32 impl_id;
 	/** Name of the TEE */
 	const char *name;
