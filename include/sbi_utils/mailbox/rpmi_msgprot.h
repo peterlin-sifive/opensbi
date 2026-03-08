@@ -994,6 +994,17 @@ enum rpmi_tee_service_id {
 	RPMI_TEE_SRV_MAX_COUNT,
 };
 
+/** TEE Implementation IDs */
+enum rpmi_tee_impl_id {
+	RPMI_TEE_IMPL_ID_OPTEE = 0x00000000,
+	/* 0x00000001 - 0x7FFFFFFF: Reserved for future use */
+	/* 0x80000000 - 0xFFFFFFFF: Implementation specific */
+};
+
+/** OP-TEE specific communication parameters */
+#define RPMI_TEE_OPTEE_COMM_REQ_REGS	8	/* a0-a7 */
+#define RPMI_TEE_OPTEE_COMM_RESP_REGS	4	/* a0-a3 */
+
 struct rpmi_tee_enable_notification_req {
 	u32 event_id;
 	u32 req_state;
@@ -1007,13 +1018,55 @@ struct rpmi_tee_enable_notification_resp {
 struct rpmi_tee_get_attributes_resp {
 	s32 status;
 	u32 tee_impl_id;
+	u32 comm_req_regs;
+	u32 comm_resp_regs;
 };
 
 /*
- * TEE_COMMUNICATE request/response structures are
- * implementation-specific. Each TEE dispatcher
- * defines its own format.
+ * TEE_COMMUNICATE request/response structures are variable-size:
+ *
+ * Request size  = comm_req_regs * XLEN_BYTES
+ * Response size = sizeof(status) + comm_resp_regs * XLEN_BYTES
+ *
+ * Where XLEN_BYTES = 4 (RV32) or 8 (RV64) based on FLAGS.XLEN_SIZE
+ *
+ * For OP-TEE (XLEN=64):
+ *   Request:  8 * 8 = 64 bytes (a0-a7)
+ *   Response: 4 + 4 * 8 = 36 bytes (status + a0-a3)
  */
+
+/** OP-TEE TEE_COMMUNICATE request (RV64) */
+struct rpmi_tee_optee_communicate_req {
+	u32 a0_lo;
+	u32 a0_hi;
+	u32 a1_lo;
+	u32 a1_hi;
+	u32 a2_lo;
+	u32 a2_hi;
+	u32 a3_lo;
+	u32 a3_hi;
+	u32 a4_lo;
+	u32 a4_hi;
+	u32 a5_lo;
+	u32 a5_hi;
+	u32 a6_lo;
+	u32 a6_hi;
+	u32 a7_lo;
+	u32 a7_hi;
+};
+
+/** OP-TEE TEE_COMMUNICATE response (RV64) */
+struct rpmi_tee_optee_communicate_resp {
+	s32 status;
+	u32 a0_lo;
+	u32 a0_hi;
+	u32 a1_lo;
+	u32 a1_hi;
+	u32 a2_lo;
+	u32 a2_hi;
+	u32 a3_lo;
+	u32 a3_hi;
+};
 
 /** RPMI Request Forward ServiceGroup Service IDs */
 enum rpmi_reqfwd_service_id {

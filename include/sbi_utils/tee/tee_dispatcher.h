@@ -29,6 +29,10 @@
 struct tee_attributes {
 	/** TEE implementation identifier */
 	u32 tee_impl_id;
+	/** Number of XLEN-sized registers in TEE_COMMUNICATE request */
+	u32 comm_req_regs;
+	/** Number of XLEN-sized registers in TEE_COMMUNICATE response */
+	u32 comm_resp_regs;
 };
 
 struct tee_dispatcher;

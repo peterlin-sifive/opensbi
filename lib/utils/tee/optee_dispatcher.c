@@ -16,6 +16,7 @@
 #include <sbi_utils/fdt/fdt_helper.h>
 #include <sbi_utils/tee/tee_dispatcher.h>
 #include <sbi_utils/mpxy/fdt_mpxy_rpmi_mbox.h>
+#include <sbi_utils/mailbox/rpmi_msgprot.h>
 
 /**
  * OP-TEE specific context
@@ -86,6 +87,9 @@ static int optee_domain_setup_deferred(struct optee_context *ctx)
 
 /**
  * Get OP-TEE attributes
+ *
+ * OP-TEE uses SMC-style communication with 8 input registers (a0-a7)
+ * and 4 output registers (a0-a3).
  */
 static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
 				struct tee_attributes *attr)
@@ -93,8 +97,14 @@ static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
 	if (!attr)
 		return SBI_EINVAL;
 
-	/* Return TEE implementation ID */
+	/* TEE implementation ID */
 	attr->tee_impl_id = TEE_IMPL_ID_OPTEE;
+
+	/* OP-TEE uses 8 registers for request (a0-a7) */
+	attr->comm_req_regs = RPMI_TEE_OPTEE_COMM_REQ_REGS;
+
+	/* OP-TEE uses 4 registers for response (a0-a3) */
+	attr->comm_resp_regs = RPMI_TEE_OPTEE_COMM_RESP_REGS;
 
 	return SBI_OK;
 }
