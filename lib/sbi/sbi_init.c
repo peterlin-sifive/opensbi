@@ -319,21 +319,28 @@ static void __noreturn init_coldboot(struct sbi_scratch *scratch, u32 hartid)
 		sbi_hart_hang();
 	}
 
-	rc = sbi_mpxy_init(scratch);
-	if (rc) {
-		sbi_printf("%s: mpxy init failed (error %d)\n", __func__, rc);
-		sbi_hart_hang();
-	}
-
 	/*
 	 * Note: Finalize domains after HSM initialization
 	 * Note: Finalize domains before HART PMP configuration so
 	 * that we use correct domain for configuring PMP.
+	 * Note: Finalize domains BEFORE MPXY init so that TEE
+	 * dispatchers can bind to their target domains.
 	 */
 	rc = sbi_domain_finalize(scratch);
 	if (rc) {
 		sbi_printf("%s: domain finalize failed (error %d)\n",
 			   __func__, rc);
+		sbi_hart_hang();
+	}
+
+	/*
+	 * Note: MPXY init must be after domain finalize so that
+	 * TEE dispatchers (e.g., OP-TEE) can correctly bind to
+	 * their trusted domains during initialization.
+	 */
+	rc = sbi_mpxy_init(scratch);
+	if (rc) {
+		sbi_printf("%s: mpxy init failed (error %d)\n", __func__, rc);
 		sbi_hart_hang();
 	}
 
