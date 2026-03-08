@@ -15,12 +15,7 @@
 
 #include <sbi/sbi_types.h>
 #include <sbi/sbi_list.h>
-
-/*
- * TEE Implementation IDs
- * These values must match the RPMI TEE Service Group specification.
- */
-#define TEE_IMPL_ID_OPTEE		0x00000000
+#include <sbi_utils/mailbox/rpmi_msgprot.h>
 
 /**
  * TEE Attributes
@@ -29,9 +24,9 @@
 struct tee_attributes {
 	/** TEE implementation identifier */
 	u32 tee_impl_id;
-	/** Number of XLEN-sized registers in TEE_COMMUNICATE request */
+	/** Number of XLEN-bit values in TEE_COMMUNICATE request */
 	u32 comm_req_regs;
-	/** Number of XLEN-sized registers in TEE_COMMUNICATE response */
+	/** Number of XLEN-bit values in TEE_COMMUNICATE response */
 	u32 comm_resp_regs;
 };
 

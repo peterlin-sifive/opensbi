@@ -98,7 +98,7 @@ static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
 		return SBI_EINVAL;
 
 	/* TEE implementation ID */
-	attr->tee_impl_id = TEE_IMPL_ID_OPTEE;
+	attr->tee_impl_id = RPMI_TEE_IMPL_ID_OPTEE;
 
 	/* OP-TEE uses 8 registers for request (a0-a7) */
 	attr->comm_req_regs = RPMI_TEE_OPTEE_COMM_REQ_REGS;
@@ -228,7 +228,7 @@ int optee_dispatcher_setup(const void *fdt, int nodeoff,
 		goto fail_free_ctx;
 
 	/* Setup dispatcher */
-	dispatcher->impl_id = TEE_IMPL_ID_OPTEE;
+	dispatcher->impl_id = RPMI_TEE_IMPL_ID_OPTEE;
 	dispatcher->name = "OP-TEE";
 	dispatcher->ops = &optee_ops;
 	dispatcher->context = ctx;
