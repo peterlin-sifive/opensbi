@@ -178,8 +178,8 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 {
 	struct mpxy_tee *tee;
 	const fdt32_t *val;
-	u32 channel_id, hartid;
-	int rc, len, cpu_offset;
+	u32 channel_id;
+	int rc, len;
 
 	/* Allocate context for TEE MPXY */
 	tee = sbi_zalloc(sizeof(*tee));
@@ -194,17 +194,6 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 		rc = SBI_EINVAL;
 		goto fail_free;
 	}
-
-	/* Get parent CPU node to extract hartid */
-	cpu_offset = fdt_parent_offset(fdt, nodeoff);
-	if (cpu_offset < 0) {
-		rc = SBI_EINVAL;
-		goto fail_free;
-	}
-
-	rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
-	if (rc)
-		goto fail_free;
 
 	/* Setup TEE dispatcher from device tree */
 	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee->dispatcher);
