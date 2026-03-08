@@ -34,7 +34,6 @@ struct tee_dispatcher;
 
 /**
  * TEE Dispatcher Operations
- * Each TEE implementation must provide these operations
  */
 struct tee_dispatcher_ops {
 	/**
