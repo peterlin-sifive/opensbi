@@ -12,10 +12,6 @@ config FDT_MPXY_RPMI_MBOX
 	depends on FDT_MAILBOX && FDT_MPXY
 	default n
 
-config FDT_MPXY_REQFWD
-	bool "MPXY driver for RPMI Request Forward service group"
-	default n
-
 if FDT_MPXY_RPMI_MBOX
 
 config FDT_MPXY_RPMI_CLOCK
@@ -42,12 +38,18 @@ config FDT_MPXY_RPMI_MM
 	bool "MPXY driver for RPMI MM service group"
 	default n
 
-config FDT_MPXY_RPMI_TEE
-	bool "MPXY driver for RPMI TEE service group"
-	select FDT_TEE
+endif
+
+config FDT_MPXY_RPMI_REQFWD
+	bool "MPXY driver for RPMI Request Forward service group"
+	depends on FDT_MPXY
 	default n
 
-endif
+config FDT_MPXY_RPMI_TEE
+	bool "MPXY driver for RPMI TEE service group"
+	depends on FDT_MPXY
+	select FDT_TEE
+	default n
 
 menu "TEE Dispatcher Support"
 
@@ -58,8 +60,9 @@ config FDT_TEE
 
 config FDT_TEE_OPTEE
 	bool "OP-TEE dispatcher support"
+	depends on FDT_TEE
 	depends on FDT_MPXY_RPMI_TEE
-	depends on FDT_MPXY_REQFWD
+	depends on FDT_MPXY_RPMI_REQFWD
 	default n
 
 endmenu
