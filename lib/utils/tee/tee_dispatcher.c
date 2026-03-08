@@ -65,8 +65,8 @@ struct tee_dispatcher *tee_dispatcher_find(u32 impl_id)
 /**
  * Setup TEE dispatcher from device tree
  */
-int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
-				  struct tee_dispatcher **out_dispatcher)
+int tee_dispatcher_setup(const void *fdt, int nodeoff,
+			 struct tee_dispatcher **out_dispatcher)
 {
 	struct tee_dispatcher *dispatcher;
 	const fdt32_t *val;
