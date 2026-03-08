@@ -32,6 +32,8 @@ struct optee_context {
 	struct sbi_domain *domain;
 	/** Per-hart reqfwd channel IDs, indexed by hart_index */
 	u32 reqfwd_channel_ids[SBI_HARTMASK_MAX_BITS];
+	/** Flag indicating reqfwd_channel_ids array is initialized */
+	bool reqfwd_channels_inited;
 };
 
 /**
@@ -258,87 +260,118 @@ static int optee_domain_enter(const struct tee_dispatcher *dispatcher)
 	return sbi_domain_context_enter(ctx->domain);
 }
 
-/**
- * Register a hart with OP-TEE dispatcher
- *
- * This function is called via dispatcher->ops->register_hart() during per-hart
- * TEE MPXY channel initialization. It parses the sibling reqfwd channel from
- * the device tree and stores the per-hart reqfwd channel ID in the OP-TEE context.
- *
- * The reqfwd channel is found by scanning sibling nodes under the same CPU node:
- *   cpu@N {
- *       rpmi_tee_N { ... };      <- TEE channel (nodeoff)
- *       rpmi_reqfwd_N { ... };   <- reqfwd channel (sibling, parsed here)
- *   };
- *
- * @param dispatcher: TEE dispatcher instance
- * @param fdt: Device tree blob
- * @param nodeoff: TEE node offset in the device tree
- * @param hart_index: Hart index (0-based, from sbi_hartid_to_hartindex())
- * @return 0 on success, negative error code on failure
- */
-static int optee_register_hart(const struct tee_dispatcher *dispatcher,
-			       const void *fdt, int nodeoff, u32 hart_index)
-{
-	struct optee_context *ctx;
-	const fdt32_t *val;
-	int len, cpu_offset, sibling_offset;
-	u32 reqfwd_channel_id;
-	bool found_reqfwd = false;
-
-	if (!dispatcher || !dispatcher->context)
-		return SBI_EINVAL;
-
-	if (hart_index >= SBI_HARTMASK_MAX_BITS)
-		return SBI_EINVAL;
-
-	ctx = dispatcher->context;
-
-	/* Get parent CPU node to find sibling reqfwd channel */
-	cpu_offset = fdt_parent_offset(fdt, nodeoff);
-	if (cpu_offset < 0)
-		return SBI_EINVAL;
-
-	/*
-	 * Find sibling reqfwd node under the same CPU node.
-	 * The reqfwd channel is OP-TEE specific and must be found for
-	 * each hart to support parallel TEE calls.
-	 */
-	fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
-		if (!fdt_node_check_compatible(fdt, sibling_offset,
-					       "riscv,sbi-mpxy-reqfwd")) {
-			val = fdt_getprop(fdt, sibling_offset,
-					  "riscv,sbi-mpxy-channel-id", &len);
-			if (len > 0 && val) {
-				reqfwd_channel_id = fdt32_to_cpu(*val);
-				found_reqfwd = true;
-				break;
-			}
-		}
-	}
-
-	if (!found_reqfwd)
-		return SBI_ENOENT;
-
-	ctx->reqfwd_channel_ids[hart_index] = reqfwd_channel_id;
-
-	return SBI_OK;
-}
-
 /** OP-TEE dispatcher operations */
 static const struct tee_dispatcher_ops optee_ops = {
 	.get_attributes = optee_get_attributes,
 	.communicate = optee_communicate,
 	.domain_enter = optee_domain_enter,
-	.register_hart = optee_register_hart,
 };
+
+/**
+ * Setup per-hart reqfwd channels from device tree
+ *
+ * This function iterates ALL CPU nodes in the device tree and sets up
+ * reqfwd channel IDs for each hart. It is called once from optee_dispatcher_setup()
+ * rather than per-hart during channel initialization.
+ *
+ * For each CPU node, it:
+ *   1. Finds child nodes with "riscv,rpmi-mpxy-tee" compatible
+ *   2. For each TEE node, finds sibling "riscv,sbi-mpxy-reqfwd" node
+ *   3. Extracts hartid, converts to hart_index
+ *   4. Stores reqfwd_channel_id in ctx->reqfwd_channel_ids[hart_index]
+ *
+ * Device tree structure:
+ *   cpus {
+ *       cpu@N {
+ *           rpmi_tee_N { compatible = "riscv,rpmi-mpxy-tee"; ... };
+ *           rpmi_reqfwd_N { compatible = "riscv,sbi-mpxy-reqfwd"; ... };
+ *       };
+ *   };
+ *
+ * @param fdt: Device tree blob
+ * @param ctx: OP-TEE context to populate
+ * @return 0 on success, negative error code on failure
+ */
+static int optee_reqfwd_channels_setup(const void *fdt,
+				       struct optee_context *ctx)
+{
+	int cpus_offset, cpu_offset, child_offset, sibling_offset;
+	const fdt32_t *val;
+	u32 hartid, hart_index, reqfwd_channel_id;
+	int len, rc;
+	bool found_any = false;
+
+	/* Find /cpus node */
+	cpus_offset = fdt_path_offset(fdt, "/cpus");
+	if (cpus_offset < 0)
+		return SBI_ENOENT;
+
+	/* Iterate all CPU nodes */
+	fdt_for_each_subnode(cpu_offset, fdt, cpus_offset) {
+		/* Skip non-cpu nodes (e.g., cpu-map) */
+		if (fdt_node_check_compatible(fdt, cpu_offset, "riscv") != 0)
+			continue;
+
+		/* Get hartid for this CPU */
+		rc = fdt_parse_hart_id(fdt, cpu_offset, &hartid);
+		if (rc)
+			continue;
+
+		/* Convert hartid to hart_index */
+		hart_index = sbi_hartid_to_hartindex(hartid);
+		if (hart_index >= SBI_HARTMASK_MAX_BITS)
+			continue;
+
+		/* Find TEE child node under this CPU */
+		fdt_for_each_subnode(child_offset, fdt, cpu_offset) {
+			if (fdt_node_check_compatible(fdt, child_offset,
+						      "riscv,rpmi-mpxy-tee"))
+				continue;
+
+			/*
+			 * Found TEE node, now find sibling reqfwd node.
+			 * The reqfwd channel is OP-TEE specific and must be
+			 * found for each hart to support parallel TEE calls.
+			 */
+			fdt_for_each_subnode(sibling_offset, fdt, cpu_offset) {
+				if (fdt_node_check_compatible(fdt, sibling_offset,
+							      "riscv,sbi-mpxy-reqfwd"))
+					continue;
+
+				val = fdt_getprop(fdt, sibling_offset,
+						  "riscv,sbi-mpxy-channel-id", &len);
+				if (len > 0 && val) {
+					reqfwd_channel_id = fdt32_to_cpu(*val);
+					ctx->reqfwd_channel_ids[hart_index] =
+						reqfwd_channel_id;
+					found_any = true;
+					break;
+				}
+			}
+			/* Only process first TEE node per CPU */
+			break;
+		}
+	}
+
+	if (!found_any)
+		return SBI_ENOENT;
+
+	ctx->reqfwd_channels_inited = true;
+	return SBI_OK;
+}
 
 /**
  * Setup OP-TEE dispatcher from device tree
  *
- * This function creates a shared OP-TEE dispatcher context. The dispatcher
- * is shared across all harts, while per-hart state (reqfwd_channel_id) is
- * managed by the mpxy_tee layer.
+ * This function creates a shared OP-TEE dispatcher context and sets up
+ * per-hart reqfwd channels. The dispatcher is shared across all harts,
+ * while per-hart reqfwd_channel_ids are stored in the optee_context.
+ *
+ * All OP-TEE setup is done here in one place:
+ *   1. Allocate OP-TEE context
+ *   2. Setup OP-TEE domain
+ *   3. Setup per-hart reqfwd channels (iterates ALL CPU nodes)
+ *   4. Initialize dispatcher structure
  */
 int optee_dispatcher_setup(const void *fdt, int nodeoff,
 			   struct tee_dispatcher *dispatcher)
@@ -353,6 +386,11 @@ int optee_dispatcher_setup(const void *fdt, int nodeoff,
 
 	/* Setup OP-TEE domain */
 	rc = optee_domain_setup(fdt, nodeoff, ctx);
+	if (rc)
+		goto fail_free_ctx;
+
+	/* Setup per-hart reqfwd channels from device tree */
+	rc = optee_reqfwd_channels_setup(fdt, ctx);
 	if (rc)
 		goto fail_free_ctx;
 
