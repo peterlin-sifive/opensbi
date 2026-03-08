@@ -94,9 +94,11 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 		/*
 		 * TEE_COMMUNICATE response format:
 		 *   Word 0:    STATUS (RPMI error code)
-		 *   Word 1..M: Implementation-specific data
+		 *   Word 1..M: Implementation-specific data (XLEN-sized registers)
 		 *
 		 * Reserve space for STATUS, pass remaining buffer to dispatcher.
+		 * The response data size is determined by comm_resp_regs from
+		 * TEE attributes (e.g., 4 registers for OP-TEE = 32 bytes on RV64).
 		 */
 		if (resp_max_len < sizeof(s32)) {
 			rc = SBI_ENOMEM;
@@ -108,6 +110,12 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 			s32 *status = (s32 *)respbuf;
 			void *data_buf = (u8 *)respbuf + sizeof(s32);
 			u32 data_max_len = resp_max_len - sizeof(s32);
+			/*
+			 * Expected response data size is comm_resp_regs * XLEN bytes.
+			 * This is the number of XLEN-sized registers returned by TEE.
+			 */
+			unsigned long expected_data_len =
+				tee->attrs.comm_resp_regs * sizeof(unsigned long);
 
 			rc = tee->dispatcher->ops->communicate(
 				tee->dispatcher,
@@ -120,18 +128,30 @@ static int mpxy_tee_send_message_with_response(struct sbi_mpxy_channel *channel,
 				*status = cpu_to_le32(RPMI_ERR_FAILED);
 				*resp_len = sizeof(s32);
 			} else {
-				*status = cpu_to_le32(RPMI_SUCCESS);
-				*resp_len = sizeof(s32) + data_len;
-
-				/* Enter TEE domain if supported */
+				/*
+				 * Enter TEE domain if supported. This blocks
+				 * until TEE processing completes and the domain
+				 * switches back. After this returns, the response
+				 * data has been written to data_buf by the reqfwd
+				 * COMPLETE_CURRENT_MESSAGE handler.
+				 */
 				if (tee->dispatcher->ops->domain_enter) {
 					rc = tee->dispatcher->ops->domain_enter(
 						tee->dispatcher);
 					if (rc) {
 						*status = cpu_to_le32(RPMI_ERR_FAILED);
 						*resp_len = sizeof(s32);
+						break;
 					}
 				}
+
+				*status = cpu_to_le32(RPMI_SUCCESS);
+				/*
+				 * Use expected_data_len based on TEE attributes.
+				 * The actual data was written by reqfwd's
+				 * COMPLETE_CURRENT_MESSAGE handler.
+				 */
+				*resp_len = sizeof(s32) + expected_data_len;
 			}
 		} else {
 			((s32 *)respbuf)[0] = cpu_to_le32(RPMI_ERR_NOTSUPP);

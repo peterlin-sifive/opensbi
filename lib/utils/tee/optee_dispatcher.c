@@ -112,6 +112,51 @@ static int optee_get_attributes(const struct tee_dispatcher *dispatcher,
 }
 
 /**
+ * OP-TEE response transformation callback
+ *
+ * OP-TEE returns 5 unsigned longs (a0-a4) where:
+ *
+ *   a0 = TEEABI_OPTEED_RETURN_* (e.g., 0xBF000005 for CALL_DONE)
+ *        This is an internal OP-TEE ABI code that signals what
+ *        type of event completed (call done, FIQ done, etc.).
+ *        It is consumed here and NOT forwarded to the caller.
+ *
+ *   a1 = SMC return value (e.g., OPTEE_SMC_RETURN_OK)
+ *        This becomes the caller's a0.
+ *
+ *   a2-a4 = Additional return values
+ *        These become the caller's a1-a3.
+ *
+ * We intentionally SKIP a0 because:
+ * 1. It's an internal signal between OP-TEE and OpenSBI
+ * 2. Linux expects SMC results in a0-a3, not internal codes
+ * 3. The TEEABI_OPTEED_RETURN_* codes have no meaning to Linux
+ */
+static int optee_transform_response(void *tx, u32 tx_len,
+				    void *rx, u32 rx_max_len,
+				    unsigned long *rx_len)
+{
+	u32 copy_len;
+
+	/* Must have at least one register (a0) to skip */
+	if (tx_len < sizeof(ulong))
+		return SBI_EINVAL;
+
+	/* Calculate length after skipping a0 */
+	copy_len = tx_len - sizeof(ulong);
+
+	/* Check destination buffer size */
+	if (copy_len > rx_max_len)
+		return SBI_ENOMEM;
+
+	/* Copy a1-a4 to rx, skipping a0 (TEEABI_OPTEED_RETURN_*) */
+	sbi_memcpy(rx, &(((ulong *)tx)[1]), copy_len);
+	*rx_len = copy_len;
+
+	return SBI_OK;
+}
+
+/**
  * OP-TEE communicate - forward message and enter domain
  *
  * OP-TEE uses SMC-style parameters (a0-a7) for communication.
@@ -143,11 +188,16 @@ static int optee_communicate(const struct tee_dispatcher *dispatcher,
 	header.datalen = cpu_to_le16(tx_len);
 	header.token = cpu_to_le16(0);
 
-	/* Forward message to request forward channel */
+	/*
+	 * Forward message to request forward channel.
+	 * Pass OP-TEE specific response transformation callback to skip a0
+	 * (internal TEEABI return code) when copying response to caller.
+	 */
 	rc = mpxy_reqfwd_forward_message(recv_channel, &header,
 					 tx_data, tx_len,
 					 rx_data, rx_max_len,
-					 rx_len);
+					 rx_len,
+					 optee_transform_response);
 
 	return rc;
 }
