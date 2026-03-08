@@ -211,20 +211,6 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 	if (rc)
 		goto fail_free;
 
-	/*
-	 * Register this hart with the TEE dispatcher (optional).
-	 * TEE implementations that need per-hart setup implement this callback.
-	 * For OP-TEE: parses sibling reqfwd channel and stores per-hart channel ID.
-	 * For other TEEs: may have different per-hart setup or none at all.
-	 */
-	if (tee->dispatcher->ops->register_hart) {
-		rc = tee->dispatcher->ops->register_hart(
-			tee->dispatcher, fdt, nodeoff,
-			sbi_hartid_to_hartindex(hartid));
-		if (rc)
-			goto fail_free;
-	}
-
 	/* Get TEE attributes */
 	if (tee->dispatcher->ops->get_attributes) {
 		rc = tee->dispatcher->ops->get_attributes(
