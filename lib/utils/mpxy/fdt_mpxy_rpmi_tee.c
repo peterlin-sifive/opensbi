@@ -196,7 +196,7 @@ static int mpxy_tee_init(const void *fdt, int nodeoff,
 	}
 
 	/* Setup TEE dispatcher from device tree */
-	rc = tee_dispatcher_setup_from_fdt(fdt, nodeoff, &tee->dispatcher);
+	rc = tee_dispatcher_setup(fdt, nodeoff, &tee->dispatcher);
 	if (rc)
 		goto fail_free;
 

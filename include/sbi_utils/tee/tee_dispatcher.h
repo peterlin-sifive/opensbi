@@ -113,8 +113,8 @@ struct tee_dispatcher *tee_dispatcher_find(u32 impl_id);
  * @param dispatcher: Output dispatcher pointer
  * @return 0 on success, negative error code on failure
  */
-int tee_dispatcher_setup_from_fdt(const void *fdt, int nodeoff,
-				  struct tee_dispatcher **dispatcher);
+int tee_dispatcher_setup(const void *fdt, int nodeoff,
+			 struct tee_dispatcher **dispatcher);
 
 /**
  * TEE dispatcher setup functions
