@@ -1022,52 +1022,6 @@ struct rpmi_tee_get_attributes_resp {
 	u32 comm_resp_regs;
 };
 
-/*
- * TEE_COMMUNICATE request/response structures are variable-size:
- *
- * Request size  = comm_req_regs * XLEN_BYTES
- * Response size = sizeof(status) + comm_resp_regs * XLEN_BYTES
- *
- * Where XLEN_BYTES = 4 (RV32) or 8 (RV64) based on FLAGS.XLEN_SIZE
- *
- * For OP-TEE (XLEN=64):
- *   Request:  8 * 8 = 64 bytes (a0-a7)
- *   Response: 4 + 4 * 8 = 36 bytes (status + a0-a3)
- */
-
-/** OP-TEE TEE_COMMUNICATE request (RV64) */
-struct rpmi_tee_optee_communicate_req {
-	u32 a0_lo;
-	u32 a0_hi;
-	u32 a1_lo;
-	u32 a1_hi;
-	u32 a2_lo;
-	u32 a2_hi;
-	u32 a3_lo;
-	u32 a3_hi;
-	u32 a4_lo;
-	u32 a4_hi;
-	u32 a5_lo;
-	u32 a5_hi;
-	u32 a6_lo;
-	u32 a6_hi;
-	u32 a7_lo;
-	u32 a7_hi;
-};
-
-/** OP-TEE TEE_COMMUNICATE response (RV64) */
-struct rpmi_tee_optee_communicate_resp {
-	s32 status;
-	u32 a0_lo;
-	u32 a0_hi;
-	u32 a1_lo;
-	u32 a1_hi;
-	u32 a2_lo;
-	u32 a2_hi;
-	u32 a3_lo;
-	u32 a3_hi;
-};
-
 /** RPMI Request Forward ServiceGroup Service IDs */
 enum rpmi_reqfwd_service_id {
 	RPMI_REQFWD_SRV_ENABLE_NOTIFICATION = 0x01,
