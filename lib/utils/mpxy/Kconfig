@@ -45,4 +45,23 @@ config FDT_MPXY_RPMI_REQFWD
 	depends on FDT_MPXY
 	default n
 
+config FDT_MPXY_RPMI_TEE
+	bool "MPXY driver for RPMI TEE service group"
+	depends on FDT_MPXY
+	select FDT_TEE
+	default n
+
+if FDT_MPXY_RPMI_TEE
+
+menu "TEE Dispatcher Support"
+
+config FDT_TEE
+	bool "FDT based TEE dispatcher support"
+	depends on FDT
+	default y
+
+endmenu
+
+endif
+
 endmenu
