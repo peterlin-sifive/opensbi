@@ -58,6 +58,13 @@ config FDT_TEE
 	depends on FDT
 	default n
 
+config FDT_TEE_OPTEE
+	bool "OP-TEE dispatcher support"
+	depends on FDT_TEE
+	depends on FDT_MPXY_RPMI_TEE
+	depends on FDT_MPXY_RPMI_REQFWD
+	default n
+
 endmenu
 
 endmenu
