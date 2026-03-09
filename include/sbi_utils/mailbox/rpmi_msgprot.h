@@ -222,6 +222,7 @@ enum rpmi_servicegroup_id {
 	RPMI_SRVGRP_PERFORMANCE = 0x0000A,
 	RPMI_SRVGRP_MANAGEMENT_MODE = 0x000B,
 	RPMI_SRVGRP_REQFWD = 0x000D,
+	RPMI_SRVGRP_TEE = 0x000E,
 	RPMI_SRVGRP_ID_MAX_COUNT,
 
 	/* Reserved range for service groups */
@@ -983,6 +984,22 @@ struct rpmi_mm_communicate_req {
 struct rpmi_mm_communicate_rsp {
 	s32 status;
 	u32 mm_comm_retdata_size;
+};
+
+/** RPMI TEE ServiceGroup Service IDs */
+enum rpmi_tee_service_id {
+	RPMI_TEE_SRV_ENABLE_NOTIFICATION = 0x01,
+	RPMI_TEE_SRV_GET_ATTRIBUTES = 0x02,
+	RPMI_TEE_SRV_COMMUNICATE = 0x03,
+	RPMI_TEE_SRV_MAX_COUNT,
+};
+
+/** TEE_GET_ATTRIBUTES response */
+struct rpmi_tee_get_attributes_resp {
+	s32 status;
+	u32 tee_impl_id;
+	u32 comm_req_regs;
+	u32 comm_resp_regs;
 };
 
 /** RPMI Request Forward ServiceGroup Service IDs */
