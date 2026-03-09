@@ -53,6 +53,8 @@ struct mpxy_reqfwd {
 	u32 rx_max_len;
 	/* Length of responce of current message */
 	unsigned long ack_len;
+	/* List node for reqfwd instance tracking */
+	struct sbi_dlist node;
 };
 
 static int retrieve_message(struct mpxy_reqfwd *reqfwd,
@@ -84,6 +86,30 @@ static int retrieve_message(struct mpxy_reqfwd *reqfwd,
 	}
 
 	return rc;
+}
+
+/** List to track all registered reqfwd instances for hartid lookup */
+static SBI_LIST_HEAD(mpxy_reqfwd_list);
+
+/**
+ * Find request forward channel by hartid
+ *
+ * Each reqfwd channel is associated with a specific hart. This function
+ * searches the registered reqfwd channels and returns the MPXY channel
+ * for the specified hartid.
+ *
+ * @param hartid: The hart ID to search for
+ * @return Pointer to the MPXY channel, or NULL if not found
+ */
+struct sbi_mpxy_channel *mpxy_reqfwd_find_channel_by_hartid(u32 hartid)
+{
+	struct mpxy_reqfwd *reqfwd;
+
+	sbi_list_for_each_entry(reqfwd, &mpxy_reqfwd_list, node)
+		if (reqfwd->hartid == hartid)
+			return &reqfwd->channel;
+
+	return NULL;
 }
 
 int mpxy_reqfwd_forward_message(struct sbi_mpxy_channel *channel,
@@ -280,6 +306,9 @@ static int mpxy_reqfwd_init(const void *fdt, int nodeoff,
 		sbi_free(reqfwd);
 		return rc;
 	}
+
+	/* Add to reqfwd list for hartid lookup */
+	sbi_list_add_tail(&reqfwd->node, &mpxy_reqfwd_list);
 
 	return SBI_OK;
 }
