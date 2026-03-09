@@ -119,4 +119,16 @@ int mpxy_reqfwd_forward_message(struct sbi_mpxy_channel *channel,
 				unsigned long *ack_len,
 				mpxy_reqfwd_transform_fn transform_fn);
 
+/**
+ * Find request forward channel by hartid
+ *
+ * Each reqfwd channel is associated with a specific hart. This function
+ * searches the registered reqfwd channels and returns the MPXY channel
+ * for the specified hartid.
+ *
+ * @param hartid: The hart ID to search for
+ * @return Pointer to the MPXY channel, or NULL if not found
+ */
+struct sbi_mpxy_channel *mpxy_reqfwd_find_channel_by_hartid(u32 hartid);
+
 #endif
