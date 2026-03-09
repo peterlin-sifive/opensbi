@@ -94,5 +94,20 @@ struct tee_dispatcher_ops {
 int tee_dispatcher_setup(const void *fdt, int nodeoff,
 			 struct tee_dispatcher **dispatcher);
 
+/**
+ * TEE dispatcher setup functions
+ * Each TEE implementation provides its own setup function.
+ */
+#ifdef CONFIG_FDT_TEE_OPTEE
+int optee_dispatcher_setup(const void *fdt, int nodeoff,
+			   struct tee_dispatcher *dispatcher);
+#else
+static inline int optee_dispatcher_setup(const void *fdt, int nodeoff,
+					 struct tee_dispatcher *dispatcher)
+{
+	return SBI_ENODEV;
+}
+#endif
+
 #endif /* __TEE_DISPATCHER_H__ */
 

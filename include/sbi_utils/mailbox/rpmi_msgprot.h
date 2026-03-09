@@ -994,6 +994,17 @@ enum rpmi_tee_service_id {
 	RPMI_TEE_SRV_MAX_COUNT,
 };
 
+/** TEE Implementation IDs */
+enum rpmi_tee_impl_id {
+	RPMI_TEE_IMPL_ID_OPTEE = 0x00000000,
+	/* 0x00000001 - 0x7FFFFFFF: Reserved for future use */
+	/* 0x80000000 - 0xFFFFFFFF: Implementation specific */
+};
+
+/** OP-TEE specific communication parameters */
+#define RPMI_TEE_OPTEE_COMM_REQ_REGS	8	/* a0-a7 */
+#define RPMI_TEE_OPTEE_COMM_RESP_REGS	4	/* a0-a3 */
+
 /** TEE_GET_ATTRIBUTES response */
 struct rpmi_tee_get_attributes_resp {
 	s32 status;
