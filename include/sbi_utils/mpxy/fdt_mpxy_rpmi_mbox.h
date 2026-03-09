@@ -82,4 +82,22 @@ struct mpxy_rpmi_mbox_data {
 /** Common probe function for MPXY RPMI drivers */
 int mpxy_rpmi_mbox_init(const void *fdt, int nodeoff, const struct fdt_match *match);
 
+/**
+ * Forward message by MPXY RPMI Request Forward service group
+ *
+ * @param channel: MPXY channel for request forwarding
+ * @param header: RPMI message header
+ * @param tx: Request data to forward
+ * @param tx_len: Length of request data
+ * @param rx: Buffer for response data
+ * @param rx_max_len: Maximum response buffer size
+ * @param ack_len: Output - actual response length
+ * @return 0 on success, negative error code on failure
+ */
+int mpxy_reqfwd_forward_message(struct sbi_mpxy_channel *channel,
+				struct rpmi_message_header *header,
+				void *tx, u32 tx_len,
+				void *rx, u32 rx_max_len,
+				unsigned long *ack_len);
+
 #endif
