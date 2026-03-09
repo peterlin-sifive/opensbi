@@ -84,7 +84,9 @@ int tee_dispatcher_setup(const void *fdt, int nodeoff,
 
 	/* Setup dispatcher based on implementation ID */
 	switch (impl_id) {
-	/* Placeholder - TEE implementation will be added here */
+	case RPMI_TEE_IMPL_ID_OPTEE:
+		rc = optee_dispatcher_setup(fdt, nodeoff, dispatcher);
+		break;
 	default:
 		rc = SBI_ENODEV;
 		break;
