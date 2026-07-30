@@ -360,6 +360,11 @@ const struct sbi_hart_ext_data sbi_hart_ext[] = {
 	__SBI_HART_EXT_DATA(v, SBI_HART_EXT_V),
 	__SBI_HART_EXT_DATA(f, SBI_HART_EXT_F),
 	__SBI_HART_EXT_DATA(d, SBI_HART_EXT_D),
+	__SBI_HART_EXT_DATA(smwid, SBI_HART_EXT_SMWID),
+	__SBI_HART_EXT_DATA(smlwid, SBI_HART_EXT_SMLWID),
+	__SBI_HART_EXT_DATA(smlwidlist, SBI_HART_EXT_SMLWIDLIST),
+	__SBI_HART_EXT_DATA(smwiddeleg, SBI_HART_EXT_SMWIDDELEG),
+	__SBI_HART_EXT_DATA(sswid, SBI_HART_EXT_SSWID),
 };
 
 _Static_assert(SBI_HART_EXT_MAX == array_size(sbi_hart_ext),
@@ -647,8 +652,29 @@ __pmp_skip:
 	/* Detect if hart support sdtrig (debug triggers) */
 	__check_ext_csr(SBI_HART_PRIV_VER_UNKNOWN,
 			CSR_TSELECT, SBI_HART_EXT_SDTRIG);
+	/* Detect if hart supports Smwid */
+	__check_ext_csr(SBI_HART_PRIV_VER_UNKNOWN,
+			CSR_MWID, SBI_HART_EXT_SMWID);
+	/* Detect if hart supports Smlwid */
+	__check_ext_csr(SBI_HART_PRIV_VER_UNKNOWN,
+			CSR_MLWID, SBI_HART_EXT_SMLWID);
+	/* Detect if hart supports Smlwidlist */
+	__check_ext_csr(SBI_HART_PRIV_VER_UNKNOWN,
+			CSR_MLWIDLIST, SBI_HART_EXT_SMLWIDLIST);
+	/* Detect if hart supports Smwiddeleg */
+	__check_ext_csr(SBI_HART_PRIV_VER_UNKNOWN,
+			CSR_MWIDDELEG, SBI_HART_EXT_SMWIDDELEG);
 
 #undef __check_ext_csr
+
+	/*
+	 * slwid traps on access when mwiddeleg=0 (reset state), so
+	 * Sswid presence is inferred from Smwiddeleg.
+	 */
+	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMWIDDELEG)) {
+		__sbi_hart_update_extension(hfeatures,
+					    SBI_HART_EXT_SSWID, true);
+	}
 
 #define __check_csr_existence(__csr, __csr_id)				\
 	csr_read_allowed(__csr, &trap);					\
