@@ -50,6 +50,8 @@ struct hart_context {
 	unsigned long senvcfg;
 	/** Supervisor resource management configuration register */
 	unsigned long srmcfg;
+	/** Supervisor lower-privilege mode World ID register */
+	unsigned long slwid;
 
 	/** Float context state */
 	struct sbi_fp_context fp_ctx;
@@ -145,6 +147,17 @@ static int switch_to_next_domain_context(struct hart_context *ctx,
 		ctx->senvcfg	= csr_swap(CSR_SENVCFG, dom_ctx->senvcfg);
 	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SSQOSID))
 		ctx->srmcfg	= csr_swap(CSR_SRMCFG, dom_ctx->srmcfg);
+	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SSWID)) {
+		/*
+		 * Temporarily enable Sswid so slwid is accessible for
+		 * swap. The target domain's mwiddeleg is restored by
+		 * sbi_hart_protection_reconfigure() below.
+		 */
+		csr_write(CSR_MWIDDELEG, ~0UL);
+		if (csr_read(CSR_MWIDDELEG))
+			ctx->slwid = csr_swap(CSR_SLWID, dom_ctx->slwid);
+		csr_write(CSR_MWIDDELEG, 0);
+	}
 
 	/* Eager context switch for float */
 	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_F) ||
