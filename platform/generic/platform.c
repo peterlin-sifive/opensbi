@@ -255,11 +255,22 @@ int generic_final_init(bool cold_boot)
 
 int generic_extensions_init(bool cold_boot)
 {
+	int rc;
+
 	if (!cold_boot)
 		return 0;
 
 	/* Parse the ISA string from FDT and enable the listed extensions */
-	return fdt_parse_isa_extensions_all_harts(fdt_get_address());
+	rc = fdt_parse_isa_extensions_all_harts(fdt_get_address());
+	if (rc)
+		return rc;
+
+	/* Parse RISC-V Worlds CPU properties from FDT */
+	rc = fdt_parse_worlds_all_harts(fdt_get_address());
+	if (rc)
+		return rc;
+
+	return 0;
 }
 
 int generic_domains_init(void)

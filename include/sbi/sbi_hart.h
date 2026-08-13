@@ -135,6 +135,12 @@ struct sbi_hart_features {
 	unsigned int pmp_log2gran;
 	unsigned int mhpm_mask;
 	unsigned int mhpm_bits;
+	u32 pmwid;
+	u64 pmwidlist;
+	u64 pmlwidlist;
+	bool has_pmwid;
+	bool has_pmwidlist;
+	bool has_pmlwidlist;
 };
 
 extern unsigned long hart_features_offset;
