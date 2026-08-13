@@ -307,6 +307,27 @@ static int __fdt_parse_region(const void *fdt, int domain_offset,
 	return 0;
 }
 
+static void fdt_parse_domain_wid_props(const void *fdt, int offset,
+				       struct sbi_domain *dom)
+{
+	const fdt32_t *val;
+	int len;
+	u64 val64;
+
+	val = fdt_getprop(fdt, offset, "wid", &len);
+	if (val && len == sizeof(fdt32_t)) {
+		dom->wid = fdt32_to_cpu(val[0]);
+		dom->has_wid = true;
+	}
+
+	val = fdt_getprop(fdt, offset, "widdeleg", &len);
+	if (val && (len == (2 * sizeof(fdt32_t)))) {
+		val64 = fdt32_to_cpu(val[0]);
+		val64 = (val64 << 32) | fdt32_to_cpu(val[1]);
+		dom->widdeleg = val64;
+	}
+}
+
 static int __fdt_parse_domain(const void *fdt, int domain_offset, void *opaque)
 {
 	u32 val32;
@@ -469,6 +490,9 @@ static int __fdt_parse_domain(const void *fdt, int domain_offset, void *opaque)
 	}
 	dom->next_mode = val32;
 
+	/* Read "wid" and "widdeleg" DT properties */
+	fdt_parse_domain_wid_props(fdt, domain_offset, dom);
+
 	/* Read "system-reset-allowed" DT property */
 	if (fdt_get_property(fdt, domain_offset,
 			     "system-reset-allowed", NULL))
@@ -535,6 +559,29 @@ fail_free_domain:
 	return err;
 }
 
+static void fdt_parse_root_domain(const void *fdt)
+{
+	int offset;
+
+	if (!fdt)
+		return;
+
+	offset = fdt_path_offset(fdt, "/chosen");
+	if (offset < 0)
+		return;
+
+	offset = fdt_node_offset_by_compatible(fdt, offset,
+					       "opensbi,domain,config");
+	if (offset < 0)
+		return;
+
+	offset = fdt_subnode_offset(fdt, offset, "root");
+	if (offset < 0)
+		return;
+
+	fdt_parse_domain_wid_props(fdt, offset, &root);
+}
+
 int fdt_domains_populate(const void *fdt)
 {
 	const u32 *val;
@@ -572,6 +619,9 @@ int fdt_domains_populate(const void *fdt)
 
 		break;
 	}
+
+	/* Parse root domain config from "root" subnode */
+	fdt_parse_root_domain(fdt);
 
 	/* Iterate over each domain in FDT and populate details */
 	return fdt_iterate_each_domain_ro(fdt, &cold_domain_offset,
