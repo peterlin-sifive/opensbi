@@ -10,6 +10,7 @@
 #include <sbi/riscv_asm.h>
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_domain.h>
+#include <sbi/sbi_hart.h>
 #include <sbi/sbi_hartmask.h>
 #include <sbi/sbi_heap.h>
 #include <sbi/sbi_hsm.h>
@@ -533,6 +534,8 @@ void sbi_domain_dump(const struct sbi_domain *dom, const char *suffix)
 	u32 i, j, k;
 	unsigned long rstart, rend;
 	struct sbi_domain_memregion *reg;
+	struct sbi_scratch *scratch = sbi_scratch_thishart_ptr();
+	const struct sbi_hart_features *hf = sbi_hart_features_ptr(scratch);
 
 	sbi_printf("Domain%d Name        %s: %s\n",
 		   dom->index, suffix, dom->name);
@@ -606,6 +609,34 @@ void sbi_domain_dump(const struct sbi_domain *dom, const char *suffix)
 	default:
 		sbi_printf("Unknown\n");
 		break;
+	}
+
+	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMLWID)) {
+		if (dom->has_wid) {
+			sbi_printf("Domain%d Wid         %s: %u\n",
+				   dom->index, suffix, dom->wid);
+		} else if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMWID)) {
+			sbi_printf("Domain%d Wid         %s: %lu (mwid)\n",
+				   dom->index, suffix,
+				   csr_read(CSR_MWID) & ~MWID_LOCK);
+		} else if (hf->has_pmwid) {
+			sbi_printf("Domain%d Wid         %s: %u (pmwid)\n",
+				   dom->index, suffix, hf->pmwid);
+		} else {
+			sbi_printf("Domain%d Wid         %s: unknown\n",
+				   dom->index, suffix);
+		}
+	} else {
+		sbi_printf("Domain%d Wid         %s: unsupported\n",
+			   dom->index, suffix);
+	}
+
+	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMWIDDELEG)) {
+		sbi_printf("Domain%d Widdeleg    %s: 0x%" PRIx64 "\n",
+			   dom->index, suffix, dom->widdeleg);
+	} else {
+		sbi_printf("Domain%d Widdeleg    %s: unsupported\n",
+			   dom->index, suffix);
 	}
 
 	sbi_printf("Domain%d SysReset    %s: %s\n",
