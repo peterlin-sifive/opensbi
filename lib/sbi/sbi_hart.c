@@ -469,6 +469,16 @@ static int hart_mhpm_get_allowed_bits(void)
 	return num_bits;
 }
 
+static void smwid_hart_init(struct sbi_scratch *scratch)
+{
+	/*
+	 * Assume MWID is restored by root-of-trust M-mode in previous
+	 * stage. Lock mwid so RoT-defined WID remains immutable.
+	 */
+	if (sbi_hart_has_extension(scratch, SBI_HART_EXT_SMWID))
+		csr_set(CSR_MWID, MWID_LOCK);
+}
+
 static int smrnmi_hart_init(struct sbi_scratch *scratch)
 {
 	const struct sbi_platform *plat;
@@ -720,6 +730,8 @@ __pmp_skip:
 int sbi_hart_reinit(struct sbi_scratch *scratch)
 {
 	int rc;
+
+	smwid_hart_init(scratch);
 
 	rc = smrnmi_hart_init(scratch);
 	if (rc)
